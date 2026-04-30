@@ -31,8 +31,12 @@ export async function requireTenantMembership(
       role: string;
       card_frozen_at: Date | null;
       payments_authorized_until: Date | null;
+      can_manage_employees: boolean;
+      can_view_cards_hide_keys: boolean;
+      can_card_admin_fund_transfer: boolean;
     }>(
-      `SELECT m.role, vc.card_frozen_at, m.payments_authorized_until
+      `SELECT m.role, vc.card_frozen_at, m.payments_authorized_until,
+              m.can_manage_employees, m.can_view_cards_hide_keys, m.can_card_admin_fund_transfer
        FROM organization_members m
        LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
        WHERE m.organization_id = $1 AND m.user_id = $2`,
@@ -42,10 +46,30 @@ export async function requireTenantMembership(
       res.status(403).json({ error: "Not a member of this organization" });
       return;
     }
+    const role = rows[0].role as "owner" | "admin" | "sub_admin" | "member";
     req.tenantId = orgId;
-    req.orgMemberRole = rows[0].role as "owner" | "admin" | "member";
+    req.orgMemberRole = role;
     req.orgCardFrozenAt = rows[0].card_frozen_at;
     req.orgPaymentsAuthorizedUntil = rows[0].payments_authorized_until;
+    if (role === "owner" || role === "admin") {
+      req.orgMemberPermissions = {
+        manageEmployees: true,
+        viewCardsHideKeys: true,
+        cardAdminFundTransfer: true,
+      };
+    } else if (role === "sub_admin") {
+      req.orgMemberPermissions = {
+        manageEmployees: rows[0].can_manage_employees,
+        viewCardsHideKeys: rows[0].can_view_cards_hide_keys,
+        cardAdminFundTransfer: rows[0].can_card_admin_fund_transfer,
+      };
+    } else {
+      req.orgMemberPermissions = {
+        manageEmployees: false,
+        viewCardsHideKeys: false,
+        cardAdminFundTransfer: false,
+      };
+    }
     const billing = await getOrganizationBillingState(orgId);
     if (!billing) {
       res.status(404).json({ error: "Organization not found" });

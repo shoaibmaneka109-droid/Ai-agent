@@ -4,6 +4,7 @@ import bcrypt from "bcryptjs";
 import { getPool } from "../../lib/db/pool.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireTenantMembership } from "../../middleware/requireTenantMembership.js";
+import { requireManageEmployees } from "../../middleware/requireOrgPermissions.js";
 import { getOrganizationBillingState } from "../../lib/billing/orgBilling.js";
 import { assertAgencyTrialEmployeeCap, countAgencyEmployees } from "../../lib/billing/agencyTrialLimits.js";
 import { env } from "../../config/env.js";
@@ -14,14 +15,11 @@ r.post(
   "/employees",
   requireAuth,
   requireTenantMembership,
+  requireManageEmployees,
   async (req: Request, res: Response) => {
     const orgId = req.params.orgId;
     if (!orgId || orgId !== req.tenantId) {
       res.status(400).json({ error: "Organization mismatch" });
-      return;
-    }
-    if (req.orgMemberRole !== "admin" && req.orgMemberRole !== "owner") {
-      res.status(403).json({ error: "Only admins can add employees" });
       return;
     }
     const billing = req.orgBilling;

@@ -7,7 +7,13 @@ declare global {
       tenantId?: string;
       auth?: AuthContext;
       orgBilling?: OrgBillingState;
-      orgMemberRole?: "owner" | "admin" | "member";
+      orgMemberRole?: "owner" | "admin" | "sub_admin" | "member";
+      /** Effective flags: owner/admin always all true; sub_admin from DB; member all false */
+      orgMemberPermissions?: {
+        manageEmployees: boolean;
+        viewCardsHideKeys: boolean;
+        cardAdminFundTransfer: boolean;
+      };
       /** Present when member has a virtual card; set when card is frozen */
       orgCardFrozenAt?: Date | null;
       /** Agency employees: admin-set window for simulated authorized payments */

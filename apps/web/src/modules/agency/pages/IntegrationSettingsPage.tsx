@@ -87,6 +87,7 @@ export function IntegrationSettingsPage() {
   const [busy, setBusy] = useState(false);
   const [rows, setRows] = useState<CredentialRow[]>([]);
   const [loadErr, setLoadErr] = useState<string | null>(null);
+  const [meRole, setMeRole] = useState<string | null | undefined>(undefined);
 
   const [stripeApi, setStripeApi] = useState("");
   const [stripeWh, setStripeWh] = useState("");
@@ -106,6 +107,19 @@ export function IntegrationSettingsPage() {
   const refreshRows = useCallback(async () => {
     setLoadErr(null);
     try {
+      const me = await apiJson<{ user?: { organizationRole?: string | null } }>("/api/v1/auth/me");
+      const role = me.user?.organizationRole ?? null;
+      setMeRole(role);
+      if (role !== "owner" && role !== "admin") {
+        setRows([]);
+        setLoadErr(
+          role === "sub_admin"
+            ? "Managers cannot view or edit API keys. Use the agency dashboard for cards (if permitted)."
+            : "Only the organization main admin can manage integrations."
+        );
+        return;
+      }
+      setLoadErr(null);
       const data = await apiJson<{ credentials: CredentialRow[] }>("/api/v1/integrations", {
         method: "GET",
       });
@@ -115,7 +129,7 @@ export function IntegrationSettingsPage() {
       if (err.status === 401) {
         setLoadErr("Not signed in. Open Agency login.");
       } else if (err.status === 403) {
-        setLoadErr("Only organization admins/owners can manage integrations.");
+        setLoadErr("Only organization main admins can manage integrations.");
       } else {
         setLoadErr(String(err.body?.error ?? "Failed to load"));
       }
@@ -153,6 +167,8 @@ export function IntegrationSettingsPage() {
         <p style={{ color: "#b91c1c" }}>Missing organization id—sign in again.</p>
       )}
       {loadErr ? <p style={{ color: "#b91c1c" }}>{loadErr}</p> : null}
+      {meRole === "owner" || meRole === "admin" ? (
+        <>
       <p style={{ fontSize: 13 }}>
         Saved rows:{" "}
         {rows.length === 0 ? (
@@ -434,6 +450,8 @@ export function IntegrationSettingsPage() {
         {" · "}
         <Link to="/agency/login">Sign in</Link>
       </p>
+        </>
+      ) : null}
     </div>
   );
 }

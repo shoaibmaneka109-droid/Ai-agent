@@ -10,6 +10,21 @@ interface VirtualCard {
   frozen?: boolean;
 }
 
+type OrgRole = "owner" | "admin" | "sub_admin" | "member";
+
+interface MePermissions {
+  manageEmployees: boolean;
+  viewCardsHideKeys: boolean;
+  cardAdminFundTransfer: boolean;
+}
+
+interface SubAdminRow {
+  userId: string;
+  email: string;
+  permissions: MePermissions;
+  joinedAt: string | null;
+}
+
 interface EmployeeRow {
   userId: string;
   email: string;
@@ -25,12 +40,27 @@ export function AgencyDashboardPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [organizationRole, setOrganizationRole] = useState<"owner" | "admin" | "member" | null | undefined>(
-    undefined
-  );
+  const [organizationRole, setOrganizationRole] = useState<OrgRole | null | undefined>(undefined);
+  const [permissions, setPermissions] = useState<MePermissions | null>(null);
   const [meLoading, setMeLoading] = useState(true);
 
   const isMainAdmin = organizationRole === "owner" || organizationRole === "admin";
+  const isSubAdmin = organizationRole === "sub_admin";
+  const canDashboard = isMainAdmin || isSubAdmin;
+  const permA = permissions?.manageEmployees ?? false;
+  const permB = permissions?.viewCardsHideKeys ?? false;
+  const permC = permissions?.cardAdminFundTransfer ?? false;
+
+  const [subAdmins, setSubAdmins] = useState<SubAdminRow[]>([]);
+  const [mgrEmail, setMgrEmail] = useState("");
+  const [mgrPassword, setMgrPassword] = useState("");
+  const [mgrA, setMgrA] = useState(true);
+  const [mgrB, setMgrB] = useState(false);
+  const [mgrC, setMgrC] = useState(false);
+
+  const [ftCardId, setFtCardId] = useState("");
+  const [ftAmount, setFtAmount] = useState("10000");
+  const [ftNote, setFtNote] = useState("");
 
   const [newCardRef, setNewCardRef] = useState("");
   const [newCardLast4, setNewCardLast4] = useState("");
@@ -41,21 +71,41 @@ export function AgencyDashboardPage() {
   const [empCardId, setEmpCardId] = useState("");
   const [empIp, setEmpIp] = useState("");
 
-  const load = useCallback(async () => {
-    if (!orgId) return;
+  const loadDashboard = useCallback(async () => {
+    if (!orgId || !canDashboard || permissions == null) return;
     setError(null);
     try {
-      const [c, e] = await Promise.all([
-        apiJson<{ virtualCards: VirtualCard[] }>(`/api/v1/organizations/${orgId}/virtual-cards`),
-        apiJson<{ employees: EmployeeRow[] }>(`/api/v1/organizations/${orgId}/employees`),
-      ]);
-      setCards(c.virtualCards ?? []);
-      setEmployees(e.employees ?? []);
+      const promises: Promise<unknown>[] = [];
+      if (permA || permB) {
+        promises.push(
+          apiJson<{ virtualCards: VirtualCard[] }>(`/api/v1/organizations/${orgId}/virtual-cards`).then((c) => {
+            setCards(c.virtualCards ?? []);
+          })
+        );
+      } else {
+        setCards([]);
+      }
+      if (permA) {
+        promises.push(
+          apiJson<{ employees: EmployeeRow[] }>(`/api/v1/organizations/${orgId}/employees`).then((e) => {
+            setEmployees(e.employees ?? []);
+          })
+        );
+      } else {
+        setEmployees([]);
+      }
+      await Promise.all(promises);
+      if (isMainAdmin) {
+        const s = await apiJson<{ subAdmins: SubAdminRow[] }>(`/api/v1/organizations/${orgId}/sub-admins`);
+        setSubAdmins(s.subAdmins ?? []);
+      } else {
+        setSubAdmins([]);
+      }
     } catch (err: unknown) {
       const e = err as { status?: number; body?: { error?: string } };
-      setError(e.body?.error ?? "Failed to load dashboard (sign in as admin?)");
+      setError(e.body?.error ?? "Failed to load dashboard");
     }
-  }, [orgId]);
+  }, [orgId, canDashboard, permissions, permA, permB, isMainAdmin]);
 
   const loadMe = useCallback(async () => {
     if (!orgId) {
@@ -66,11 +116,16 @@ export function AgencyDashboardPage() {
     setMeLoading(true);
     try {
       const me = await apiJson<{
-        user?: { organizationRole?: "owner" | "admin" | "member" | null };
+        user?: {
+          organizationRole?: OrgRole | null;
+          organizationPermissions?: MePermissions | null;
+        };
       }>("/api/v1/auth/me");
       setOrganizationRole(me.user?.organizationRole ?? null);
+      setPermissions(me.user?.organizationPermissions ?? null);
     } catch {
       setOrganizationRole(null);
+      setPermissions(null);
     } finally {
       setMeLoading(false);
     }
@@ -81,14 +136,20 @@ export function AgencyDashboardPage() {
   }, [loadMe]);
 
   useEffect(() => {
-    void load();
-  }, [load]);
+    void loadDashboard();
+  }, [loadDashboard]);
 
   useEffect(() => {
     if (cards.length > 0 && !empCardId) {
       setEmpCardId(cards[0]!.id);
     }
   }, [cards, empCardId]);
+
+  useEffect(() => {
+    if (cards.length > 0 && !ftCardId && permC) {
+      setFtCardId(cards[0]!.id);
+    }
+  }, [cards, ftCardId, permC]);
 
   async function createCard(ev: FormEvent) {
     ev.preventDefault();
@@ -107,7 +168,7 @@ export function AgencyDashboardPage() {
       setNewCardRef("");
       setNewCardLast4("");
       setNewCardLabel("");
-      await load();
+      await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Create card failed");
@@ -134,7 +195,7 @@ export function AgencyDashboardPage() {
       setEmpEmail("");
       setEmpPassword("");
       setEmpIp("");
-      await load();
+      await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Add employee failed");
@@ -152,7 +213,7 @@ export function AgencyDashboardPage() {
         method: "POST",
         body: JSON.stringify({ frozen }),
       });
-      await load();
+      await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Freeze update failed");
@@ -170,7 +231,7 @@ export function AgencyDashboardPage() {
         method: "PATCH",
         body: JSON.stringify({ until: untilIso }),
       });
-      await load();
+      await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Authorization update failed");
@@ -188,10 +249,62 @@ export function AgencyDashboardPage() {
         method: "PATCH",
         body: JSON.stringify({ virtualCardId, allowedVpsIp }),
       });
-      await load();
+      await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function createSubAdmin(ev: FormEvent) {
+    ev.preventDefault();
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/sub-admins`, {
+        method: "POST",
+        body: JSON.stringify({
+          email: mgrEmail,
+          password: mgrPassword,
+          canManageEmployees: mgrA,
+          canViewCardsHideKeys: mgrB,
+          canCardAdminFundTransfer: mgrC,
+        }),
+      });
+      setMgrEmail("");
+      setMgrPassword("");
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Create manager failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function submitFundTransfer(ev: FormEvent) {
+    ev.preventDefault();
+    if (!orgId || !ftCardId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const amount = Number(ftAmount);
+      await apiJson(`/api/v1/organizations/${orgId}/fund-transfers`, {
+        method: "POST",
+        body: JSON.stringify({
+          fromVirtualCardId: ftCardId,
+          amountCents: amount,
+          note: ftNote || undefined,
+        }),
+      });
+      setFtNote("");
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Fund transfer failed");
     } finally {
       setBusy(false);
     }
@@ -213,17 +326,31 @@ export function AgencyDashboardPage() {
     );
   }
 
-  if (!isMainAdmin) {
+  if (!canDashboard) {
     return (
       <div style={{ maxWidth: 720 }}>
         <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
         <p style={{ color: "#64748b", fontSize: 15 }}>
-          This page is for <strong>organization admins</strong> (main admin) to register virtual cards, add employees,
-          and assign each employee&apos;s <strong>mandatory VPS IP</strong>. Your account is an employee; card access is
-          restricted to requests from your registered IP — use <Link to="/agency/my-card">My virtual card</Link>.
+          This page is for <strong>organization admins and managers</strong>. Employees map cards and VPS IP from here
+          only when granted access — use <Link to="/agency/my-card">My virtual card</Link> for your assigned card.
         </p>
         <p>
           <Link to="/agency">Home</Link> · <Link to="/agency/my-card">My card</Link>
+        </p>
+      </div>
+    );
+  }
+
+  if (!permA && !permB && !permC) {
+    return (
+      <div style={{ maxWidth: 720 }}>
+        <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
+        <p style={{ color: "#b45309" }}>
+          Your manager account has no permissions enabled. Ask a main admin to grant at least one of: Manage employees,
+          View cards, or Fund transfers.
+        </p>
+        <p>
+          <Link to="/agency">Home</Link>
         </p>
       </div>
     );
@@ -233,108 +360,199 @@ export function AgencyDashboardPage() {
     <div style={{ maxWidth: 900 }}>
       <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
       <p style={{ color: "#64748b", fontSize: 14 }}>
-        As <strong>main admin</strong>, register each issued virtual card, then add employees. Each employee must have
-        a <strong>virtual card</strong> and a <strong>mandatory VPS IP</strong>. The API middleware{" "}
-        <code>requireEmployeeVpsIpForCardAccess</code> compares the request client IP to{" "}
-        <code>organization_members.allowed_vps_ip</code>; employees only receive sensitive card data when they match.
-        Set <code>TRUST_PROXY=1</code> behind your load balancer so <code>X-Forwarded-For</code> reflects the employee
-        VPS. Admins can <strong>freeze cards</strong> and set a <strong>time-bound authorized payment</strong> window
-        per employee.
+        {isMainAdmin ? (
+          <>
+            As <strong>main admin</strong>, register virtual cards and create <strong>managers (sub-admins)</strong> with
+            granular permissions. Employees need a mapped card and <strong>mandatory VPS IP</strong>;{" "}
+            <code>requireEmployeeVpsIpForCardAccess</code> compares the request IP to <code>allowed_vps_ip</code>.
+          </>
+        ) : (
+          <>
+            Signed in as <strong>manager (sub-admin)</strong>. Sections below match your assigned permissions (A: employees,
+            B: cards without API keys, C: fund transfers).
+          </>
+        )}
       </p>
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 
-      <section style={{ marginBottom: "2rem" }}>
-        <h2>Virtual cards</h2>
-        <form onSubmit={createCard} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
-          <input
-            placeholder="Issuer card id / external ref"
-            value={newCardRef}
-            onChange={(e) => setNewCardRef(e.target.value)}
-            required
-            style={{ padding: 8 }}
-          />
-          <input
-            placeholder="Last 4 digits"
-            value={newCardLast4}
-            onChange={(e) => setNewCardLast4(e.target.value)}
-            maxLength={4}
-            required
-            style={{ padding: 8 }}
-          />
-          <input placeholder="Label (optional)" value={newCardLabel} onChange={(e) => setNewCardLabel(e.target.value)} style={{ padding: 8 }} />
-          <button type="submit" disabled={busy}>
-            Register card
-          </button>
-        </form>
-        <ul>
-          {cards.map((c) => (
-            <li key={c.id} style={{ marginBottom: 8 }}>
-              <code>{c.externalRef}</code> · **** {c.last4}
-              {c.label ? ` — ${c.label}` : ""}
-              {c.frozen ? (
-                <span style={{ color: "#b91c1c", marginLeft: 8 }}>Frozen</span>
-              ) : null}
-              <span style={{ marginLeft: 12 }}>
-                <button type="button" disabled={busy} onClick={() => void setCardFrozen(c.id, !c.frozen)}>
-                  {c.frozen ? "Unfreeze" : "Freeze card"}
-                </button>
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
-
-      <section style={{ marginBottom: "2rem" }}>
-        <h2>Employees</h2>
-        <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
-          <thead>
-            <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
-              <th style={{ padding: "8px 4px" }}>Email</th>
-              <th>Card</th>
-              <th>VPS IP</th>
-              <th>Pay auth until</th>
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {employees.map((emp) => (
-              <EmployeeMappingRow
-                key={emp.userId}
-                emp={emp}
-                cards={cards}
-                busy={busy}
-                onSave={(cardId, ip) => void updateEmployeeMapping(emp.userId, cardId, ip)}
-                onSetPayAuth={(untilIso) => void setPaymentsAuthorization(emp.userId, untilIso)}
-              />
+      {isMainAdmin ? (
+        <section style={{ marginBottom: "2rem", padding: "1rem", background: "#f8fafc", borderRadius: 8 }}>
+          <h2 style={{ marginTop: 0 }}>Managers (sub-admins)</h2>
+          <p style={{ fontSize: 14, color: "#64748b" }}>
+            Permission A: manage employees · B: view/freeze cards (no Stripe/Airwallex API keys) · C: card-to-admin fund
+            transfers (simulated).
+          </p>
+          <ul style={{ fontSize: 14 }}>
+            {subAdmins.map((s) => (
+              <li key={s.userId}>
+                <strong>{s.email}</strong> — A:{s.permissions.manageEmployees ? "✓" : "—"} B:
+                {s.permissions.viewCardsHideKeys ? "✓" : "—"} C:{s.permissions.cardAdminFundTransfer ? "✓" : "—"}
+              </li>
             ))}
-          </tbody>
-        </table>
+          </ul>
+          <h3 style={{ fontSize: "1rem" }}>Add manager</h3>
+          <form onSubmit={createSubAdmin} style={{ display: "grid", gap: 8, maxWidth: 440 }}>
+            <input type="email" placeholder="Email" value={mgrEmail} onChange={(e) => setMgrEmail(e.target.value)} required style={{ padding: 8 }} />
+            <input type="password" placeholder="Password" value={mgrPassword} onChange={(e) => setMgrPassword(e.target.value)} required style={{ padding: 8 }} />
+            <label style={{ fontSize: 14 }}>
+              <input type="checkbox" checked={mgrA} onChange={(e) => setMgrA(e.target.checked)} /> A — Manage employees
+            </label>
+            <label style={{ fontSize: 14 }}>
+              <input type="checkbox" checked={mgrB} onChange={(e) => setMgrB(e.target.checked)} /> B — View cards (hide API keys)
+            </label>
+            <label style={{ fontSize: 14 }}>
+              <input type="checkbox" checked={mgrC} onChange={(e) => setMgrC(e.target.checked)} /> C — Card-to-admin fund transfers
+            </label>
+            <button type="submit" disabled={busy || (!mgrA && !mgrB && !mgrC)}>
+              Create manager
+            </button>
+          </form>
+        </section>
+      ) : null}
 
-        <h3 style={{ marginTop: "1.5rem" }}>Add employee</h3>
-        <form onSubmit={addEmployee} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
-          <input type="email" placeholder="Email" value={empEmail} onChange={(e) => setEmpEmail(e.target.value)} required style={{ padding: 8 }} />
-          <input type="password" placeholder="Password" value={empPassword} onChange={(e) => setEmpPassword(e.target.value)} required style={{ padding: 8 }} />
-          <label>
-            Virtual card
-            <select value={empCardId} onChange={(e) => setEmpCardId(e.target.value)} required style={{ width: "100%", marginTop: 4, padding: 8 }}>
-              {cards.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.externalRef} (…{c.last4})
-                </option>
+      {permA || permB ? (
+        <section style={{ marginBottom: "2rem" }}>
+          <h2>Virtual cards</h2>
+          {permA && !permB ? (
+            <p style={{ fontSize: 14, color: "#64748b" }}>
+              You can map employees to cards listed below. Registering new cards or freezing requires permission B.
+            </p>
+          ) : null}
+          {permB ? (
+            <form onSubmit={createCard} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+              <input
+                placeholder="Issuer card id / external ref"
+                value={newCardRef}
+                onChange={(e) => setNewCardRef(e.target.value)}
+                required
+                style={{ padding: 8 }}
+              />
+              <input
+                placeholder="Last 4 digits"
+                value={newCardLast4}
+                onChange={(e) => setNewCardLast4(e.target.value)}
+                maxLength={4}
+                required
+                style={{ padding: 8 }}
+              />
+              <input placeholder="Label (optional)" value={newCardLabel} onChange={(e) => setNewCardLabel(e.target.value)} style={{ padding: 8 }} />
+              <button type="submit" disabled={busy}>
+                Register card
+              </button>
+            </form>
+          ) : null}
+          <ul>
+            {cards.map((c) => (
+              <li key={c.id} style={{ marginBottom: 8 }}>
+                <code>{c.externalRef}</code> · **** {c.last4}
+                {c.label ? ` — ${c.label}` : ""}
+                {c.frozen ? (
+                  <span style={{ color: "#b91c1c", marginLeft: 8 }}>Frozen</span>
+                ) : null}
+                {permB ? (
+                  <span style={{ marginLeft: 12 }}>
+                    <button type="button" disabled={busy} onClick={() => void setCardFrozen(c.id, !c.frozen)}>
+                      {c.frozen ? "Unfreeze" : "Freeze card"}
+                    </button>
+                  </span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {permA ? (
+        <section style={{ marginBottom: "2rem" }}>
+          <h2>Employees</h2>
+          <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
+            <thead>
+              <tr style={{ textAlign: "left", borderBottom: "1px solid #e2e8f0" }}>
+                <th style={{ padding: "8px 4px" }}>Email</th>
+                <th>Card</th>
+                <th>VPS IP</th>
+                <th>Pay auth until</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {employees.map((emp) => (
+                <EmployeeMappingRow
+                  key={emp.userId}
+                  emp={emp}
+                  cards={cards}
+                  busy={busy}
+                  onSave={(cardId, ip) => void updateEmployeeMapping(emp.userId, cardId, ip)}
+                  onSetPayAuth={(untilIso) => void setPaymentsAuthorization(emp.userId, untilIso)}
+                />
               ))}
-            </select>
-          </label>
-          <input placeholder="VPS IP (e.g. 203.0.113.10)" value={empIp} onChange={(e) => setEmpIp(e.target.value)} required style={{ padding: 8 }} />
-          <button type="submit" disabled={busy || cards.length === 0}>
-            Create employee
-          </button>
-        </form>
-        {cards.length === 0 ? <p style={{ color: "#b45309" }}>Register at least one virtual card before adding employees.</p> : null}
-      </section>
+            </tbody>
+          </table>
+
+          <h3 style={{ marginTop: "1.5rem" }}>Add employee</h3>
+          <form onSubmit={addEmployee} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+            <input type="email" placeholder="Email" value={empEmail} onChange={(e) => setEmpEmail(e.target.value)} required style={{ padding: 8 }} />
+            <input type="password" placeholder="Password" value={empPassword} onChange={(e) => setEmpPassword(e.target.value)} required style={{ padding: 8 }} />
+            <label>
+              Virtual card
+              <select value={empCardId} onChange={(e) => setEmpCardId(e.target.value)} required style={{ width: "100%", marginTop: 4, padding: 8 }}>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.externalRef} (…{c.last4})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <input placeholder="VPS IP (e.g. 203.0.113.10)" value={empIp} onChange={(e) => setEmpIp(e.target.value)} required style={{ padding: 8 }} />
+            <button type="submit" disabled={busy || cards.length === 0}>
+              Create employee
+            </button>
+          </form>
+          {cards.length === 0 ? (
+            <p style={{ color: "#b45309" }}>Register at least one virtual card before adding employees.</p>
+          ) : null}
+        </section>
+      ) : null}
+
+      {permC && cards.length > 0 ? (
+        <section style={{ marginBottom: "2rem" }}>
+          <h2>Card → admin fund transfer (simulated)</h2>
+          <p style={{ fontSize: 14, color: "#64748b" }}>
+            Records a transfer intent for reconciliation. Wire to your issuer API in production.
+          </p>
+          <form onSubmit={submitFundTransfer} style={{ display: "grid", gap: 8, maxWidth: 420 }}>
+            <label>
+              From card
+              <select value={ftCardId} onChange={(e) => setFtCardId(e.target.value)} style={{ width: "100%", marginTop: 4, padding: 8 }}>
+                {cards.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.externalRef} (…{c.last4})
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              Amount (cents)
+              <input type="number" min={1} value={ftAmount} onChange={(e) => setFtAmount(e.target.value)} style={{ width: "100%", marginTop: 4, padding: 8 }} />
+            </label>
+            <input placeholder="Note (optional)" value={ftNote} onChange={(e) => setFtNote(e.target.value)} style={{ padding: 8 }} />
+            <button type="submit" disabled={busy}>
+              Record transfer
+            </button>
+          </form>
+        </section>
+      ) : null}
 
       <p>
-        <Link to="/agency">Home</Link> · <Link to="/agency/settings/integrations">Integrations</Link> ·{" "}
-        <Link to="/agency/my-card">Employee: my card</Link>
+        <Link to="/agency">Home</Link>
+        {isMainAdmin ? (
+          <>
+            {" "}
+            · <Link to="/agency/settings/integrations">Integrations (main admin)</Link>
+          </>
+        ) : null}
+        {" "}
+        · <Link to="/agency/my-card">Employee: my card</Link>
       </p>
     </div>
   );

@@ -5,7 +5,7 @@ import { env } from "../../config/env.js";
 import {
   findUserByEmail,
   findUserById,
-  findOrgMembershipRole,
+  findOrgMembershipForMe,
   verifyPassword,
   registerSolo,
   registerAgencyAdmin,
@@ -135,7 +135,8 @@ r.get("/me", requireAuth, async (req: Request, res: Response) => {
       res.status(404).json({ error: "Organization not found" });
       return;
     }
-    const organizationRole = await findOrgMembershipRole(user.default_org_id, user.id);
+    const membership = await findOrgMembershipForMe(user.default_org_id, user.id);
+    const organizationRole = membership?.role ?? null;
     res.json({
       user: {
         id: user.id,
@@ -143,6 +144,13 @@ r.get("/me", requireAuth, async (req: Request, res: Response) => {
         userType: user.user_type,
         defaultOrganizationId: user.default_org_id,
         organizationRole,
+        organizationPermissions: membership
+          ? {
+              manageEmployees: membership.canManageEmployees,
+              viewCardsHideKeys: membership.canViewCardsHideKeys,
+              cardAdminFundTransfer: membership.canCardAdminFundTransfer,
+            }
+          : null,
       },
       billing: {
         accessMode: billing.accessMode,

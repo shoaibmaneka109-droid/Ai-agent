@@ -4,7 +4,7 @@ export type CredentialProvider = "stripe" | "airwallex" | "wise";
 
 export type CredentialKind = "api_secret" | "webhook_secret";
 
-export type OrgMemberRole = "owner" | "admin" | "member";
+export type OrgMemberRole = "owner" | "admin" | "sub_admin" | "member";
 
 export type OrganizationKind = "solo_workspace" | "agency";
 

@@ -1,9 +1,17 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
+import bcrypt from "bcryptjs";
 import { getPool } from "../../lib/db/pool.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireTenantMembership } from "../../middleware/requireTenantMembership.js";
 import { requireOrgAdmin } from "../../middleware/requireOrgAdmin.js";
+import {
+  requireManageEmployees,
+  requireViewCardsAdmin,
+  requireCardAdminFundTransfer,
+  requireMainAgencyAdmin,
+  requireManageEmployeesOrViewCards,
+} from "../../middleware/requireOrgPermissions.js";
 import { env } from "../../config/env.js";
 
 const r = Router({ mergeParams: true });
@@ -23,6 +31,7 @@ r.get(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireManageEmployees,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     try {
@@ -94,6 +103,7 @@ r.post(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireViewCardsAdmin,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     const body = req.body as { externalRef?: string; last4?: string; label?: string };
@@ -132,6 +142,7 @@ r.get(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireManageEmployeesOrViewCards,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     try {
@@ -169,6 +180,7 @@ r.patch(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireManageEmployees,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     const userId = req.params.userId;
@@ -215,6 +227,7 @@ r.post(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireViewCardsAdmin,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     const cardId = req.params.cardId;
@@ -254,6 +267,7 @@ r.patch(
   requireAuth,
   requireTenantMembership,
   requireOrgAdmin,
+  requireManageEmployees,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
     const userId = req.params.userId;
@@ -291,6 +305,173 @@ r.patch(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Failed to update payment authorization" });
+    }
+  }
+);
+
+/** Main admin: list managers (sub-admins) and their granular permissions. */
+r.get(
+  "/sub-admins",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{
+        user_id: string;
+        email: string;
+        can_manage_employees: boolean;
+        can_view_cards_hide_keys: boolean;
+        can_card_admin_fund_transfer: boolean;
+        joined_at: Date | null;
+      }>(
+        `SELECT m.user_id, u.email,
+                m.can_manage_employees, m.can_view_cards_hide_keys, m.can_card_admin_fund_transfer,
+                m.joined_at
+         FROM organization_members m
+         JOIN users u ON u.id = m.user_id
+         WHERE m.organization_id = $1 AND m.role = 'sub_admin'
+         ORDER BY u.email`,
+        [req.tenantId]
+      );
+      res.json({
+        subAdmins: rows.map((row) => ({
+          userId: row.user_id,
+          email: row.email,
+          permissions: {
+            manageEmployees: row.can_manage_employees,
+            viewCardsHideKeys: row.can_view_cards_hide_keys,
+            cardAdminFundTransfer: row.can_card_admin_fund_transfer,
+          },
+          joinedAt: row.joined_at ? new Date(row.joined_at).toISOString() : null,
+        })),
+      });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to list sub-admins" });
+    }
+  }
+);
+
+/** Main admin: create a Sub-Admin (manager) with granular permissions A/B/C. */
+r.post(
+  "/sub-admins",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as {
+      email?: string;
+      password?: string;
+      canManageEmployees?: boolean;
+      canViewCardsHideKeys?: boolean;
+      canCardAdminFundTransfer?: boolean;
+    };
+    if (!body.email?.trim() || !body.password) {
+      res.status(400).json({ error: "email and password required" });
+      return;
+    }
+    const permA = Boolean(body.canManageEmployees);
+    const permB = Boolean(body.canViewCardsHideKeys);
+    const permC = Boolean(body.canCardAdminFundTransfer);
+    if (!permA && !permB && !permC) {
+      res.status(400).json({ error: "At least one permission (A, B, or C) must be true" });
+      return;
+    }
+    const pool = getPool();
+    const passwordHash = await bcrypt.hash(body.password, 12);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const userRes = await client.query<{ id: string }>(
+        `INSERT INTO users (email, password_hash, user_type, default_org_id)
+         VALUES ($1, $2, 'agency', $3)
+         RETURNING id`,
+        [body.email.trim(), passwordHash, req.tenantId]
+      );
+      const newUserId = userRes.rows[0]!.id;
+      await client.query(
+        `INSERT INTO organization_members
+          (organization_id, user_id, role, joined_at,
+           can_manage_employees, can_view_cards_hide_keys, can_card_admin_fund_transfer)
+         VALUES ($1, $2, 'sub_admin', now(), $3, $4, $5)`,
+        [req.tenantId, newUserId, permA, permB, permC]
+      );
+      await client.query("COMMIT");
+      res.status(201).json({
+        userId: newUserId,
+        permissions: {
+          manageEmployees: permA,
+          viewCardsHideKeys: permB,
+          cardAdminFundTransfer: permC,
+        },
+      });
+    } catch (e: unknown) {
+      await client.query("ROLLBACK");
+      const code = (e as { code?: string })?.code;
+      if (code === "23505") {
+        res.status(409).json({ error: "Email already in use" });
+        return;
+      }
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to create sub-admin" });
+    } finally {
+      client.release();
+    }
+  }
+);
+
+/** Card-to-admin fund transfer (simulated); requires permission C. */
+r.post(
+  "/fund-transfers",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireCardAdminFundTransfer,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as { fromVirtualCardId?: string; amountCents?: unknown; note?: string };
+    if (!body.fromVirtualCardId?.trim()) {
+      res.status(400).json({ error: "fromVirtualCardId required" });
+      return;
+    }
+    const amount = typeof body.amountCents === "number" ? body.amountCents : Number(body.amountCents);
+    if (!Number.isFinite(amount) || amount <= 0 || amount > 100_000_000) {
+      res.status(400).json({ error: "amountCents must be a positive integer (max 100000000)" });
+      return;
+    }
+    const note = body.note?.trim() ? body.note.trim().slice(0, 500) : null;
+    try {
+      const pool = getPool();
+      const cardCheck = await pool.query<{ id: string }>(
+        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2`,
+        [body.fromVirtualCardId.trim(), req.tenantId]
+      );
+      if (!cardCheck.rows[0]) {
+        res.status(400).json({ error: "Virtual card not in this organization" });
+        return;
+      }
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO organization_card_fund_transfers
+          (organization_id, from_virtual_card_id, amount_cents, initiated_by_user_id, note)
+         VALUES ($1, $2::uuid, $3, $4, $5)
+         RETURNING id`,
+        [req.tenantId, body.fromVirtualCardId.trim(), Math.floor(amount), req.auth!.userId, note]
+      );
+      res.status(201).json({
+        transferId: rows[0]!.id,
+        status: "simulated_completed",
+        message:
+          "Simulated transfer recorded. Replace with Stripe/Airwallex Issuing transfer to the org settlement account.",
+      });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Fund transfer failed" });
     }
   }
 );

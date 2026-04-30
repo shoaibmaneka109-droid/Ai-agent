@@ -4,11 +4,18 @@ import { env } from "../../config/env.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireTenantMembership } from "../../middleware/requireTenantMembership.js";
 import { requireFullSubscription } from "../../middleware/requireFullSubscription.js";
+import { requireMainAgencyAdmin } from "../../middleware/requireOrgPermissions.js";
 import { upsertEncryptedCredential } from "./credentials.repository.js";
 
 const r = Router();
 
-r.post("/:provider", requireAuth, requireTenantMembership, requireFullSubscription, async (req: Request, res: Response) => {
+r.post(
+  "/:provider",
+  requireAuth,
+  requireTenantMembership,
+  requireMainAgencyAdmin,
+  requireFullSubscription,
+  async (req: Request, res: Response) => {
   const provider = req.params.provider;
   if (provider !== "stripe" && provider !== "airwallex" && provider !== "wise") {
     res.status(400).json({ error: "provider must be stripe, airwallex, or wise" });

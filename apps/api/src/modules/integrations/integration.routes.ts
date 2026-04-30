@@ -10,7 +10,7 @@ import { env } from "../../config/env.js";
 import { requireAuth } from "../../middleware/requireAuth.js";
 import { requireTenantMembership } from "../../middleware/requireTenantMembership.js";
 import { requireFullSubscription } from "../../middleware/requireFullSubscription.js";
-import { requireOrgAdmin } from "../../middleware/requireOrgAdmin.js";
+import { requireMainAgencyAdmin } from "../../middleware/requireOrgPermissions.js";
 import {
   upsertEncryptedCredential,
   getDecryptedCredential,
@@ -44,7 +44,7 @@ r.get(
   "/integrations",
   requireAuth,
   requireTenantMembership,
-  requireOrgAdmin,
+  requireMainAgencyAdmin,
   async (req: Request, res: Response) => {
     try {
       const rows = await listCredentialRows(req.tenantId!);
@@ -69,7 +69,7 @@ r.put(
   "/integrations/:provider",
   requireAuth,
   requireTenantMembership,
-  requireOrgAdmin,
+  requireMainAgencyAdmin,
   requireFullSubscription,
   async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider ?? "");
@@ -201,7 +201,7 @@ r.get(
   "/integrations/:provider/connection-test",
   requireAuth,
   requireTenantMembership,
-  requireOrgAdmin,
+  requireMainAgencyAdmin,
   requireFullSubscription,
   async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider ?? "");
@@ -237,7 +237,7 @@ r.post(
   "/integrations/:provider/connection-test",
   requireAuth,
   requireTenantMembership,
-  requireOrgAdmin,
+  requireMainAgencyAdmin,
   requireFullSubscription,
   async (req: Request, res: Response) => {
     const provider = parseProvider(req.params.provider ?? "");

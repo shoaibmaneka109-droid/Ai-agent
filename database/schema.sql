@@ -42,12 +42,15 @@ CREATE TABLE users (
 CREATE TABLE organization_members (
   organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
   user_id         UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
+  role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'sub_admin', 'member')),
   invited_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   joined_at       TIMESTAMPTZ,
   virtual_card_id UUID,
   allowed_vps_ip  INET,
   payments_authorized_until TIMESTAMPTZ,
+  can_manage_employees         BOOLEAN NOT NULL DEFAULT false,
+  can_view_cards_hide_keys     BOOLEAN NOT NULL DEFAULT false,
+  can_card_admin_fund_transfer BOOLEAN NOT NULL DEFAULT false,
   PRIMARY KEY (organization_id, user_id)
 );
 
@@ -72,6 +75,19 @@ ALTER TABLE organization_members
   FOREIGN KEY (virtual_card_id) REFERENCES organization_virtual_cards (id) ON DELETE SET NULL;
 
 CREATE INDEX idx_org_members_virtual_card ON organization_members (virtual_card_id);
+
+CREATE TABLE organization_card_fund_transfers (
+  id                     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id        UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  from_virtual_card_id   UUID NOT NULL REFERENCES organization_virtual_cards (id) ON DELETE CASCADE,
+  amount_cents           INTEGER NOT NULL CHECK (amount_cents > 0 AND amount_cents <= 100000000),
+  initiated_by_user_id   UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
+  note                   TEXT,
+  status                 TEXT NOT NULL DEFAULT 'simulated_completed',
+  created_at             TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_org_card_fund_transfers_org ON organization_card_fund_transfers (organization_id);
 
 -- Encrypted at rest: ciphertext + IV + auth tag (AES-256-GCM); never store plaintext keys
 CREATE TABLE organization_credentials (

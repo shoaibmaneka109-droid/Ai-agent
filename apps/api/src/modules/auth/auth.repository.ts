@@ -36,15 +36,64 @@ export async function findUserById(id: string): Promise<{
 export async function findOrgMembershipRole(
   organizationId: string,
   userId: string
-): Promise<"owner" | "admin" | "member" | null> {
+): Promise<"owner" | "admin" | "sub_admin" | "member" | null> {
   const pool = getPool();
   const { rows } = await pool.query<{ role: string }>(
     `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
     [organizationId, userId]
   );
   const r = rows[0]?.role;
-  if (r === "owner" || r === "admin" || r === "member") return r;
+  if (r === "owner" || r === "admin" || r === "sub_admin" || r === "member") return r;
   return null;
+}
+
+export async function findOrgMembershipForMe(
+  organizationId: string,
+  userId: string
+): Promise<{
+  role: "owner" | "admin" | "sub_admin" | "member";
+  canManageEmployees: boolean;
+  canViewCardsHideKeys: boolean;
+  canCardAdminFundTransfer: boolean;
+} | null> {
+  const pool = getPool();
+  const { rows } = await pool.query<{
+    role: string;
+    can_manage_employees: boolean;
+    can_view_cards_hide_keys: boolean;
+    can_card_admin_fund_transfer: boolean;
+  }>(
+    `SELECT role, can_manage_employees, can_view_cards_hide_keys, can_card_admin_fund_transfer
+     FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+    [organizationId, userId]
+  );
+  const row = rows[0];
+  if (!row) return null;
+  const role = row.role;
+  if (role !== "owner" && role !== "admin" && role !== "sub_admin" && role !== "member") return null;
+  const r = role as "owner" | "admin" | "sub_admin" | "member";
+  if (r === "owner" || r === "admin") {
+    return {
+      role: r,
+      canManageEmployees: true,
+      canViewCardsHideKeys: true,
+      canCardAdminFundTransfer: true,
+    };
+  }
+  if (r === "sub_admin") {
+    return {
+      role: r,
+      canManageEmployees: row.can_manage_employees,
+      canViewCardsHideKeys: row.can_view_cards_hide_keys,
+      canCardAdminFundTransfer: row.can_card_admin_fund_transfer,
+    };
+  }
+  return {
+    role: "member",
+    canManageEmployees: false,
+    canViewCardsHideKeys: false,
+    canCardAdminFundTransfer: false,
+  };
 }
 
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
