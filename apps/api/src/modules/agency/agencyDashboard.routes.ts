@@ -36,12 +36,16 @@ r.get(
         last4: string | null;
         card_label: string | null;
         allowed_vps_ip: string | null;
+        card_frozen_at: Date | null;
+        payments_authorized_until: Date | null;
       }>(
         `SELECT m.user_id, u.email, m.role,
                 m.virtual_card_id,
                 vc.external_ref,
                 vc.last4,
                 vc.label AS card_label,
+                vc.card_frozen_at,
+                m.payments_authorized_until,
                 host(m.allowed_vps_ip) AS allowed_vps_ip
          FROM organization_members m
          JOIN users u ON u.id = m.user_id
@@ -62,9 +66,14 @@ r.get(
                 externalRef: row.external_ref,
                 last4: row.last4,
                 label: row.card_label,
+                frozen: Boolean(row.card_frozen_at),
               }
             : null,
           allowedVpsIp: row.allowed_vps_ip,
+          cardFrozen: Boolean(row.card_frozen_at),
+          paymentsAuthorizedUntil: row.payments_authorized_until
+            ? new Date(row.payments_authorized_until).toISOString()
+            : null,
         })),
       });
     } catch (e) {
@@ -132,8 +141,9 @@ r.get(
         external_ref: string;
         last4: string;
         label: string | null;
+        card_frozen_at: Date | null;
       }>(
-        `SELECT id, external_ref, last4, label FROM organization_virtual_cards
+        `SELECT id, external_ref, last4, label, card_frozen_at FROM organization_virtual_cards
          WHERE organization_id = $1 ORDER BY created_at`,
         [req.tenantId]
       );
@@ -143,6 +153,7 @@ r.get(
           externalRef: v.external_ref,
           last4: v.last4,
           label: v.label,
+          frozen: Boolean(v.card_frozen_at),
         })),
       });
     } catch (e) {
@@ -194,6 +205,92 @@ r.patch(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(400).json({ error: "Invalid virtualCardId or IP address" });
+    }
+  }
+);
+
+/** Freeze or unfreeze an issued virtual card (blocks employee card details + authorized payments). */
+r.post(
+  "/virtual-cards/:cardId/freeze",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const cardId = req.params.cardId;
+    if (!cardId) {
+      res.status(400).json({ error: "cardId required" });
+      return;
+    }
+    const body = req.body as { frozen?: boolean };
+    if (typeof body.frozen !== "boolean") {
+      res.status(400).json({ error: "frozen (boolean) required" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const frozenAt = body.frozen ? new Date() : null;
+      const { rowCount } = await pool.query(
+        `UPDATE organization_virtual_cards
+         SET card_frozen_at = $3
+         WHERE id = $1::uuid AND organization_id = $2`,
+        [cardId, req.tenantId, frozenAt]
+      );
+      if (rowCount === 0) {
+        res.status(404).json({ error: "Virtual card not found in this organization" });
+        return;
+      }
+      res.json({ frozen: body.frozen });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update card freeze state" });
+    }
+  }
+);
+
+/** Set time-bound authorized payment window for an employee (ISO 8601 or null to clear). */
+r.patch(
+  "/employees/:userId/payments-authorization",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const userId = req.params.userId;
+    if (!userId) {
+      res.status(400).json({ error: "userId required" });
+      return;
+    }
+    const body = req.body as { until?: string | null };
+    if (!("until" in body)) {
+      res.status(400).json({ error: "until required (ISO 8601 string or null to clear)" });
+      return;
+    }
+    let until: Date | null = null;
+    if (body.until !== null && body.until !== undefined) {
+      const d = new Date(body.until);
+      if (Number.isNaN(d.getTime())) {
+        res.status(400).json({ error: "until must be a valid ISO 8601 datetime" });
+        return;
+      }
+      until = d;
+    }
+    try {
+      const pool = getPool();
+      const { rowCount } = await pool.query(
+        `UPDATE organization_members m
+         SET payments_authorized_until = $3
+         WHERE m.organization_id = $1 AND m.user_id = $2::uuid AND m.role = 'member'`,
+        [req.tenantId, userId, until]
+      );
+      if (rowCount === 0) {
+        res.status(404).json({ error: "Employee not found or not a member role" });
+        return;
+      }
+      res.json({ paymentsAuthorizedUntil: until ? until.toISOString() : null });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update payment authorization" });
     }
   }
 );

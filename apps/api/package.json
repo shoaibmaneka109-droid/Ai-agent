@@ -9,6 +9,7 @@
     "start": "node dist/index.js"
   },
   "dependencies": {
+    "@securepay/core": "*",
     "@securepay/shared": "*",
     "bcryptjs": "^2.4.3",
     "dotenv": "^16.4.5",

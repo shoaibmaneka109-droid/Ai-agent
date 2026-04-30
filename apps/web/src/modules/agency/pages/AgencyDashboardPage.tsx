@@ -7,13 +7,16 @@ interface VirtualCard {
   externalRef: string;
   last4: string;
   label: string | null;
+  frozen?: boolean;
 }
 
 interface EmployeeRow {
   userId: string;
   email: string;
-  virtualCard: { id: string; externalRef: string; last4: string; label: string | null } | null;
+  virtualCard: { id: string; externalRef: string; last4: string; label: string | null; frozen?: boolean } | null;
   allowedVpsIp: string | null;
+  cardFrozen?: boolean;
+  paymentsAuthorizedUntil: string | null;
 }
 
 export function AgencyDashboardPage() {
@@ -111,6 +114,42 @@ export function AgencyDashboardPage() {
     }
   }
 
+  async function setCardFrozen(cardId: string, frozen: boolean) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/virtual-cards/${cardId}/freeze`, {
+        method: "POST",
+        body: JSON.stringify({ frozen }),
+      });
+      await load();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Freeze update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setPaymentsAuthorization(userId: string, untilIso: string | null) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/employees/${userId}/payments-authorization`, {
+        method: "PATCH",
+        body: JSON.stringify({ until: untilIso }),
+      });
+      await load();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Authorization update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function updateEmployeeMapping(userId: string, virtualCardId: string, allowedVpsIp: string) {
     if (!orgId) return;
     setBusy(true);
@@ -142,8 +181,9 @@ export function AgencyDashboardPage() {
       <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
       <p style={{ color: "#64748b", fontSize: 14 }}>
         Register each issued virtual card, then add employees with a <strong>mandatory VPS IP</strong>. Employees
-        can only load full card details when their request comes from that IP (see API{' '}
-        <code>TRUST_PROXY</code> behind a load balancer).
+        can only load full card details when their request comes from that IP (see API{" "}
+        <code>TRUST_PROXY</code> behind a load balancer). Admins can <strong>freeze cards</strong> and set a{" "}
+        <strong>time-bound authorized payment</strong> window per employee.
       </p>
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 
@@ -172,9 +212,17 @@ export function AgencyDashboardPage() {
         </form>
         <ul>
           {cards.map((c) => (
-            <li key={c.id}>
+            <li key={c.id} style={{ marginBottom: 8 }}>
               <code>{c.externalRef}</code> · **** {c.last4}
               {c.label ? ` — ${c.label}` : ""}
+              {c.frozen ? (
+                <span style={{ color: "#b91c1c", marginLeft: 8 }}>Frozen</span>
+              ) : null}
+              <span style={{ marginLeft: 12 }}>
+                <button type="button" disabled={busy} onClick={() => void setCardFrozen(c.id, !c.frozen)}>
+                  {c.frozen ? "Unfreeze" : "Freeze card"}
+                </button>
+              </span>
             </li>
           ))}
         </ul>
@@ -188,6 +236,7 @@ export function AgencyDashboardPage() {
               <th style={{ padding: "8px 4px" }}>Email</th>
               <th>Card</th>
               <th>VPS IP</th>
+              <th>Pay auth until</th>
               <th></th>
             </tr>
           </thead>
@@ -199,6 +248,7 @@ export function AgencyDashboardPage() {
                 cards={cards}
                 busy={busy}
                 onSave={(cardId, ip) => void updateEmployeeMapping(emp.userId, cardId, ip)}
+                onSetPayAuth={(untilIso) => void setPaymentsAuthorization(emp.userId, untilIso)}
               />
             ))}
           </tbody>
@@ -239,9 +289,39 @@ function EmployeeMappingRow(props: {
   cards: VirtualCard[];
   busy: boolean;
   onSave: (virtualCardId: string, ip: string) => void;
+  onSetPayAuth: (untilIso: string | null) => void;
 }) {
   const [cardId, setCardId] = useState(props.emp.virtualCard?.id ?? props.cards[0]?.id ?? "");
   const [ip, setIp] = useState(props.emp.allowedVpsIp ?? "");
+  const [authLocal, setAuthLocal] = useState(() => {
+    if (!props.emp.paymentsAuthorizedUntil) return "";
+    const d = new Date(props.emp.paymentsAuthorizedUntil);
+    if (Number.isNaN(d.getTime())) return "";
+    const pad = (n: number) => String(n).padStart(2, "0");
+    return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+  });
+
+  useEffect(() => {
+    setCardId(props.emp.virtualCard?.id ?? props.cards[0]?.id ?? "");
+    setIp(props.emp.allowedVpsIp ?? "");
+    if (!props.emp.paymentsAuthorizedUntil) {
+      setAuthLocal("");
+      return;
+    }
+    const d = new Date(props.emp.paymentsAuthorizedUntil);
+    if (Number.isNaN(d.getTime())) {
+      setAuthLocal("");
+      return;
+    }
+    const pad = (n: number) => String(n).padStart(2, "0");
+    setAuthLocal(`${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`);
+  }, [
+    props.emp.userId,
+    props.emp.paymentsAuthorizedUntil,
+    props.emp.allowedVpsIp,
+    props.emp.virtualCard?.id,
+    props.cards,
+  ]);
   return (
     <tr style={{ borderBottom: "1px solid #f1f5f9" }}>
       <td style={{ padding: "8px 4px" }}>{props.emp.email}</td>
@@ -250,12 +330,32 @@ function EmployeeMappingRow(props: {
           {props.cards.map((c) => (
             <option key={c.id} value={c.id}>
               …{c.last4}
+              {c.frozen ? " (frozen)" : ""}
             </option>
           ))}
         </select>
       </td>
       <td>
         <input value={ip} onChange={(e) => setIp(e.target.value)} style={{ width: 140, padding: 4 }} />
+      </td>
+      <td style={{ fontSize: 12 }}>
+        <input
+          type="datetime-local"
+          value={authLocal}
+          onChange={(e) => setAuthLocal(e.target.value)}
+          style={{ maxWidth: 180 }}
+        />
+        <div style={{ marginTop: 4 }}>
+          <button type="button" disabled={props.busy} onClick={() => props.onSetPayAuth(authLocal ? new Date(authLocal).toISOString() : null)}>
+            Set window
+          </button>{" "}
+          <button type="button" disabled={props.busy} onClick={() => props.onSetPayAuth(null)}>
+            Clear
+          </button>
+        </div>
+        {props.emp.paymentsAuthorizedUntil ? (
+          <div style={{ color: "#64748b", marginTop: 4 }}>API: {props.emp.paymentsAuthorizedUntil}</div>
+        ) : null}
       </td>
       <td>
         <button type="button" disabled={props.busy} onClick={() => props.onSave(cardId, ip)}>

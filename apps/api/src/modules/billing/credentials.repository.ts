@@ -1,7 +1,7 @@
 import type { CredentialKind, CredentialProvider } from "@securepay/shared";
 import { getPool } from "../../lib/db/pool.js";
 import { env } from "../../config/env.js";
-import { decryptSecret, encryptSecret, type EncryptedPayload } from "../../lib/crypto/tenantSecrets.js";
+import { decryptSecret, encryptSecret, type EncryptedPayload } from "@securepay/core";
 
 export interface UpsertOrgCredentialInput {
   organizationId: string;

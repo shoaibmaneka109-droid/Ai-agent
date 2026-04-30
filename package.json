@@ -10,7 +10,7 @@
   "scripts": {
     "dev:api": "npm run dev -w @securepay/api",
     "dev:web": "npm run dev -w @securepay/web",
-    "build": "npm run build -w @securepay/shared && npm run build -w @securepay/api && npm run build -w @securepay/web"
+    "build": "npm run build -w @securepay/core && npm run build -w @securepay/shared && npm run build -w @securepay/api && npm run build -w @securepay/web"
   },
   "engines": {
     "node": ">=20"

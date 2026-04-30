@@ -7,6 +7,7 @@ import { autofillRoutes } from "./modules/autofill/autofill.routes.js";
 import { integrationRoutes } from "./modules/integrations/integration.routes.js";
 import { agencyDashboardRoutes } from "./modules/agency/agencyDashboard.routes.js";
 import { virtualCardRoutes } from "./modules/cards/virtualCard.routes.js";
+import { authorizedPaymentRoutes } from "./modules/payments/authorizedPayment.routes.js";
 
 export function createApp() {
   const app = express();
@@ -19,5 +20,6 @@ export function createApp() {
   app.use("/api/v1/credentials", credentialsRoutes);
   app.use("/api/v1/autofill", autofillRoutes);
   app.use("/api/v1/virtual-cards", virtualCardRoutes);
+  app.use("/api/v1/virtual-cards", authorizedPaymentRoutes);
   return app;
 }

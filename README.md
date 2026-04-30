@@ -6,6 +6,7 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 
 - **`apps/api`** — Express API: `config/`, `middleware/` (JWT, tenant membership, subscription gates), `lib/crypto`, `lib/jwt`, `lib/billing`, `modules/*` (auth, organizations, billing/credentials, integrations, autofill).
 - **`apps/web`** — React (Vite): `app/`, `modules/solo`, `modules/agency`, `shared/`.
+- **`packages/core`** — AES-256-GCM helpers (`encryptUtf8` / `decryptUtf8`) for provider secrets.
 - **`packages/shared`** — Types, billing helpers, **provider connection tests** (`testStripeConnection`, `testAirwallexConnection`, `testWiseConnection`).
 - **`database/`** — SQL schema and migrations.
 
@@ -36,11 +37,18 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 - **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** compares **`getRequestClientIp(req)`** to the DB IP; mismatch → **403** `VPS_IP_MISMATCH`. Owners/admins skip IP check (they do not receive simulated full PAN).
 - **Production**: set **`TRUST_PROXY=1`** and place Express behind a proxy that sets **`X-Forwarded-For`** so the client IP reflects the employee’s VPS. See `apps/api/src/lib/requestIp.ts` and `apps/api/src/index.ts` (`app.set('trust proxy', 1)`).
 
-Upgrade: if your DB predates these columns, run **`database/migrations/003_employee_vps_virtual_cards.sql`**.
+Upgrade: if your DB predates these columns, run **`database/migrations/003_employee_vps_virtual_cards.sql`**, then **`database/migrations/004_card_freeze_payment_authorization.sql`** (card freeze + employee payment authorization window).
+
+## Freeze card & authorized payments (Agency)
+
+- **`organization_virtual_cards.card_frozen_at`** — when set, employees on that card get **403** `CARD_FROZEN` for **`GET /api/v1/virtual-cards/my-virtual-card/details`** and **`POST /api/v1/virtual-cards/authorized-payment`**. Admins/owners are not blocked by freeze for card-detail preview.
+- **`organization_members.payments_authorized_until`** — employees may only call **`POST /api/v1/virtual-cards/authorized-payment`** while `now() < payments_authorized_until` (still requires VPS IP match). Outside the window: **403** `PAYMENT_NOT_AUTHORIZED`.
+- **Admin API**: **`POST /api/v1/organizations/:orgId/virtual-cards/:cardId/freeze`** body `{ "frozen": true|false }`; **`PATCH /api/v1/organizations/:orgId/employees/:userId/payments-authorization`** body `{ "until": "<ISO8601>" | null }`.
+- **UI**: agency dashboard — freeze toggle per card; per-employee datetime window for authorized payments. Employee page includes a simulated authorized payment form.
 
 ## Admin integrations (self-service)
 
-Tenants configure their own **Stripe**, **Airwallex**, and **Wise** API keys and **webhook secrets**; values are **encrypted (AES-256-GCM)** before insert into **`organization_credentials`** (`credential_kind`: `api_secret` | `webhook_secret`).
+Tenants configure their own **Stripe**, **Airwallex**, and **Wise** API keys and **webhook secrets**; values are **encrypted (AES-256-GCM)** via **`@securepay/core`** before insert into **`organization_credentials`** (`credential_kind`: `api_secret` | `webhook_secret`).
 
 - **`GET /api/v1/integrations`** — admin/owner; lists configured `(provider, kind)` rows (no secret values).
 - **`PUT /api/v1/integrations/:provider`** — admin/owner; **requires active trial or subscription**. Body shapes:

@@ -20,6 +20,13 @@ export async function requireEmployeeVpsIpForCardAccess(
     next();
     return;
   }
+  if (req.orgCardFrozenAt) {
+    res.status(403).json({
+      error: "This card has been frozen by an administrator.",
+      code: "CARD_FROZEN",
+    });
+    return;
+  }
   try {
     const pool = getPool();
     const { rows } = await pool.query<{ allowed_vps_ip: string | null }>(

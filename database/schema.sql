@@ -47,6 +47,7 @@ CREATE TABLE organization_members (
   joined_at       TIMESTAMPTZ,
   virtual_card_id UUID,
   allowed_vps_ip  INET,
+  payments_authorized_until TIMESTAMPTZ,
   PRIMARY KEY (organization_id, user_id)
 );
 
@@ -59,6 +60,7 @@ CREATE TABLE organization_virtual_cards (
   external_ref     TEXT NOT NULL,
   last4            CHAR(4) NOT NULL,
   label            TEXT,
+  card_frozen_at   TIMESTAMPTZ,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, external_ref)
 );

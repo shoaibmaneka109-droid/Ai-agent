@@ -27,8 +27,15 @@ export async function requireTenantMembership(
   }
   try {
     const pool = getPool();
-    const { rows } = await pool.query<{ role: string }>(
-      `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+    const { rows } = await pool.query<{
+      role: string;
+      card_frozen_at: Date | null;
+      payments_authorized_until: Date | null;
+    }>(
+      `SELECT m.role, vc.card_frozen_at, m.payments_authorized_until
+       FROM organization_members m
+       LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
+       WHERE m.organization_id = $1 AND m.user_id = $2`,
       [orgId, req.auth.userId]
     );
     if (!rows[0]) {
@@ -37,6 +44,8 @@ export async function requireTenantMembership(
     }
     req.tenantId = orgId;
     req.orgMemberRole = rows[0].role as "owner" | "admin" | "member";
+    req.orgCardFrozenAt = rows[0].card_frozen_at;
+    req.orgPaymentsAuthorizedUntil = rows[0].payments_authorized_until;
     const billing = await getOrganizationBillingState(orgId);
     if (!billing) {
       res.status(404).json({ error: "Organization not found" });

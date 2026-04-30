@@ -1,4 +1,4 @@
-import { userTypeLabel } from "../../shared/lib/userType";
+import { userTypeLabel } from "../../../shared/lib/userType";
 
 export function SoloDashboard() {
   return (
