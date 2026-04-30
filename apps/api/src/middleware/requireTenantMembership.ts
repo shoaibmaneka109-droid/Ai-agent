@@ -30,14 +30,17 @@ export async function requireTenantMembership(
     const { rows } = await pool.query<{
       role: string;
       card_frozen_at: Date | null;
+      full_time_freeze: boolean | null;
+      emergency_lockdown_at: Date | null;
       payments_authorized_until: Date | null;
       can_manage_employees: boolean;
       can_view_cards_hide_keys: boolean;
       can_card_admin_fund_transfer: boolean;
     }>(
-      `SELECT m.role, vc.card_frozen_at, m.payments_authorized_until,
+      `SELECT m.role, vc.card_frozen_at, vc.full_time_freeze, o.emergency_lockdown_at, m.payments_authorized_until,
               m.can_manage_employees, m.can_view_cards_hide_keys, m.can_card_admin_fund_transfer
        FROM organization_members m
+       JOIN organizations o ON o.id = m.organization_id
        LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
        WHERE m.organization_id = $1 AND m.user_id = $2`,
       [orgId, req.auth.userId]
@@ -49,7 +52,10 @@ export async function requireTenantMembership(
     const role = rows[0].role as "owner" | "admin" | "sub_admin" | "member";
     req.tenantId = orgId;
     req.orgMemberRole = role;
-    req.orgCardFrozenAt = rows[0].card_frozen_at;
+    const sessionFrozen = Boolean(rows[0].card_frozen_at);
+    const masterFrozen = Boolean(rows[0].full_time_freeze);
+    const emergency = Boolean(rows[0].emergency_lockdown_at);
+    req.orgCardFillBlocked = role === "member" && (sessionFrozen || masterFrozen || emergency);
     req.orgPaymentsAuthorizedUntil = rows[0].payments_authorized_until;
     if (role === "owner" || role === "admin") {
       req.orgMemberPermissions = {

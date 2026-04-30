@@ -14,8 +14,8 @@ declare global {
         viewCardsHideKeys: boolean;
         cardAdminFundTransfer: boolean;
       };
-      /** Present when member has a virtual card; set when card is frozen */
-      orgCardFrozenAt?: Date | null;
+      /** True when employee card fill is blocked (session freeze, master freeze, or org emergency lockdown) */
+      orgCardFillBlocked?: boolean;
       /** Agency employees: admin-set window for simulated authorized payments */
       orgPaymentsAuthorizedUntil?: Date | null;
     }

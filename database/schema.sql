@@ -24,6 +24,7 @@ CREATE TABLE organizations (
   billing_email         TEXT,
   trial_ends_at         TIMESTAMPTZ NOT NULL,
   subscription_ends_at TIMESTAMPTZ,
+  emergency_lockdown_at TIMESTAMPTZ,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -64,6 +65,7 @@ CREATE TABLE organization_virtual_cards (
   last4            CHAR(4) NOT NULL,
   label            TEXT,
   card_frozen_at   TIMESTAMPTZ,
+  full_time_freeze BOOLEAN NOT NULL DEFAULT false,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, external_ref)
 );
@@ -88,6 +90,17 @@ CREATE TABLE organization_card_fund_transfers (
 );
 
 CREATE INDEX idx_org_card_fund_transfers_org ON organization_card_fund_transfers (organization_id);
+
+CREATE TABLE organization_checkout_allowed_merchants (
+  id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id    UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  hostname           TEXT NOT NULL,
+  label              TEXT,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, hostname)
+);
+
+CREATE INDEX idx_checkout_allowed_org ON organization_checkout_allowed_merchants (organization_id);
 
 -- Encrypted at rest: ciphertext + IV + auth tag (AES-256-GCM); never store plaintext keys
 CREATE TABLE organization_credentials (

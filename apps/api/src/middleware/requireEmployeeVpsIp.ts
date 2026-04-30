@@ -21,9 +21,9 @@ export async function requireEmployeeVpsIpForCardAccess(
     next();
     return;
   }
-  if (req.orgCardFrozenAt) {
+  if (req.orgCardFillBlocked) {
     res.status(403).json({
-      error: "This card has been frozen by an administrator.",
+      error: "This card is frozen (master freeze, session freeze, or agency lockdown).",
       code: "CARD_FROZEN",
     });
     return;

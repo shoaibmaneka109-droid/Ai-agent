@@ -37,7 +37,14 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 - **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** loads **`organization_members.allowed_vps_ip`** and compares it to **`getRequestClientIp(req)`** using **`ip-address`** canonical equality (IPv4/IPv6); mismatch → **403** `VPS_IP_MISMATCH` (body includes **`observedIp`**, **`expectedIp`**, **`trustProxy`**). Owners/admins skip IP check (they do not receive simulated full PAN).
 - **Production**: set **`TRUST_PROXY=1`** and place Express behind a proxy that sets **`X-Forwarded-For`** so the client IP reflects the employee’s VPS. See `apps/api/src/lib/requestIp.ts` and `apps/api/src/index.ts` (`app.set('trust proxy', 1)`).
 
-Upgrade: run migrations in order **`003`**, **`004`**, then **`005_sub_admin_permissions.sql`** (role `sub_admin`, permission columns, fund transfer audit table).
+Upgrade: run migrations in order through **`007_master_freeze_emergency_lockdown.sql`** (after `005`, `006`).
+
+## Master freeze, emergency lockdown & extension status
+
+- **`organization_virtual_cards.full_time_freeze`** — global **Master / full-time freeze** per card; when true, employees and the Chrome extension cannot autofill or read PAN even if session freeze is cleared and IP/whitelist are correct.
+- **`organizations.emergency_lockdown_at`** — **Emergency lockdown**: when set, all cards in the agency are blocked for employees/extension (same effect as every card frozen).
+- **API**: **`PATCH /api/v1/organizations/:orgId/virtual-cards/:cardId/full-time-freeze`** body `{ "fullTimeFreeze": boolean }`; **`GET` / `POST /api/v1/organizations/:orgId/emergency-lockdown`** (`GET` returns `{ emergencyLockdown }`, `POST` body `{ "active": boolean }`) — main admin only.
+- **Extension pre-check**: **`GET /api/v1/extension/card-fill-status?hostname=...`** — returns `{ canFill, reason?, ... }` without PAN; used before **`GET /extension/checkout-card`**.
 
 ## Sub-admins (managers) & granular permissions
 
@@ -50,7 +57,7 @@ Upgrade: run migrations in order **`003`**, **`004`**, then **`005_sub_admin_per
 
 ## Freeze card & authorized payments (Agency)
 
-- **`organization_virtual_cards.card_frozen_at`** — when set, employees on that card get **403** `CARD_FROZEN` for **`GET /api/v1/virtual-cards/my-virtual-card/details`** and **`POST /api/v1/virtual-cards/authorized-payment`**. Admins/owners are not blocked by freeze for card-detail preview.
+- **`organization_virtual_cards.card_frozen_at`** — **session freeze**; combined with **`full_time_freeze`** and org **`emergency_lockdown_at`** for employee/extension blocking (see Master freeze section).
 - **`organization_members.payments_authorized_until`** — employees may only call **`POST /api/v1/virtual-cards/authorized-payment`** while `now() < payments_authorized_until` (still requires VPS IP match). Outside the window: **403** `PAYMENT_NOT_AUTHORIZED`.
 - **Admin API**: **`POST /api/v1/organizations/:orgId/virtual-cards/:cardId/freeze`** body `{ "frozen": true|false }`; **`PATCH /api/v1/organizations/:orgId/employees/:userId/payments-authorization`** body `{ "until": "<ISO8601>" | null }`.
 - **UI**: agency dashboard — freeze toggle per card; per-employee datetime window for authorized payments. Employee page includes a simulated authorized payment form.

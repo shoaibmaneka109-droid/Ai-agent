@@ -8,6 +8,7 @@ interface VirtualCard {
   last4: string;
   label: string | null;
   frozen?: boolean;
+  fullTimeFreeze?: boolean;
 }
 
 type OrgRole = "owner" | "admin" | "sub_admin" | "member";
@@ -52,6 +53,12 @@ export function AgencyDashboardPage() {
   const permC = permissions?.cardAdminFundTransfer ?? false;
 
   const [subAdmins, setSubAdmins] = useState<SubAdminRow[]>([]);
+  const [whitelistMerchants, setWhitelistMerchants] = useState<{ id: string; hostname: string; label: string | null }[]>(
+    []
+  );
+  const [wlHost, setWlHost] = useState("");
+  const [wlLabel, setWlLabel] = useState("");
+  const [emergencyLockdown, setEmergencyLockdown] = useState(false);
   const [mgrEmail, setMgrEmail] = useState("");
   const [mgrPassword, setMgrPassword] = useState("");
   const [mgrA, setMgrA] = useState(true);
@@ -98,8 +105,18 @@ export function AgencyDashboardPage() {
       if (isMainAdmin) {
         const s = await apiJson<{ subAdmins: SubAdminRow[] }>(`/api/v1/organizations/${orgId}/sub-admins`);
         setSubAdmins(s.subAdmins ?? []);
+        const w = await apiJson<{ merchants: { id: string; hostname: string; label: string | null }[] }>(
+          `/api/v1/organizations/${orgId}/checkout-allowed-merchants`
+        );
+        setWhitelistMerchants(w.merchants ?? []);
+        const lock = await apiJson<{ emergencyLockdown: boolean }>(
+          `/api/v1/organizations/${orgId}/emergency-lockdown`
+        );
+        setEmergencyLockdown(lock.emergencyLockdown ?? false);
       } else {
         setSubAdmins([]);
+        setWhitelistMerchants([]);
+        setEmergencyLockdown(false);
       }
     } catch (err: unknown) {
       const e = err as { status?: number; body?: { error?: string } };
@@ -150,6 +167,42 @@ export function AgencyDashboardPage() {
       setFtCardId(cards[0]!.id);
     }
   }, [cards, ftCardId, permC]);
+
+  async function addWhitelistMerchant(ev: FormEvent) {
+    ev.preventDefault();
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/checkout-allowed-merchants`, {
+        method: "POST",
+        body: JSON.stringify({ hostname: wlHost.trim().toLowerCase(), label: wlLabel.trim() || undefined }),
+      });
+      setWlHost("");
+      setWlLabel("");
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Whitelist add failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function removeWhitelistMerchant(id: string) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/checkout-allowed-merchants/${id}`, { method: "DELETE" });
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Remove failed");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function createCard(ev: FormEvent) {
     ev.preventDefault();
@@ -217,6 +270,43 @@ export function AgencyDashboardPage() {
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Freeze update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function setFullTimeFreeze(cardId: string, fullTimeFreeze: boolean) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/virtual-cards/${cardId}/full-time-freeze`, {
+        method: "PATCH",
+        body: JSON.stringify({ fullTimeFreeze }),
+      });
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Master freeze update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyEmergencyLockdown(active: boolean) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/emergency-lockdown`, {
+        method: "POST",
+        body: JSON.stringify({ active }),
+      });
+      setEmergencyLockdown(active);
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Emergency lockdown failed");
     } finally {
       setBusy(false);
     }
@@ -376,6 +466,52 @@ export function AgencyDashboardPage() {
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 
       {isMainAdmin ? (
+        <section
+          style={{
+            marginBottom: "2rem",
+            padding: "1rem",
+            background: emergencyLockdown ? "#fef2f2" : "#fff7ed",
+            borderRadius: 8,
+            border: emergencyLockdown ? "2px solid #ef4444" : "1px solid #fed7aa",
+          }}
+        >
+          <h2 style={{ marginTop: 0 }}>Emergency lockdown</h2>
+          <p style={{ fontSize: 14, color: "#64748b" }}>
+            One click freezes <strong>all</strong> agency cards for employees and the Chrome extension (session toggles
+            still apply for admins). Clear when safe.
+          </p>
+          {emergencyLockdown ? (
+            <p style={{ color: "#b91c1c", fontWeight: 600 }}>Lockdown is ACTIVE — all employee card fills blocked.</p>
+          ) : null}
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              type="button"
+              disabled={busy || emergencyLockdown}
+              onClick={() => void applyEmergencyLockdown(true)}
+              style={{
+                padding: "10px 18px",
+                background: "#dc2626",
+                color: "#fff",
+                border: "none",
+                borderRadius: 6,
+                cursor: busy || emergencyLockdown ? "not-allowed" : "pointer",
+              }}
+            >
+              Emergency lockdown (freeze all)
+            </button>
+            <button
+              type="button"
+              disabled={busy || !emergencyLockdown}
+              onClick={() => void applyEmergencyLockdown(false)}
+              style={{ padding: "10px 18px", borderRadius: 6, cursor: busy || !emergencyLockdown ? "not-allowed" : "pointer" }}
+            >
+              Clear lockdown
+            </button>
+          </div>
+        </section>
+      ) : null}
+
+      {isMainAdmin ? (
         <section style={{ marginBottom: "2rem", padding: "1rem", background: "#f8fafc", borderRadius: 8 }}>
           <h2 style={{ marginTop: 0 }}>Managers (sub-admins)</h2>
           <p style={{ fontSize: 14, color: "#64748b" }}>
@@ -407,6 +543,45 @@ export function AgencyDashboardPage() {
               Create manager
             </button>
           </form>
+        </section>
+      ) : null}
+
+      {isMainAdmin ? (
+        <section style={{ marginBottom: "2rem", padding: "1rem", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+          <h2 style={{ marginTop: 0 }}>Chrome extension — checkout whitelist</h2>
+          <p style={{ fontSize: 14, color: "#166534" }}>
+            Employees use the SecurePay extension on checkout pages. Add each payment page <strong>hostname</strong>{" "}
+            (e.g. <code>buy.stripe.com</code>, <code>pay.example.com</code>) so the extension will fetch card data only
+            on those sites.
+          </p>
+          <form onSubmit={addWhitelistMerchant} style={{ display: "flex", flexWrap: "wrap", gap: 8, alignItems: "flex-end", marginBottom: 12 }}>
+            <label>
+              Hostname
+              <input value={wlHost} onChange={(e) => setWlHost(e.target.value)} placeholder="buy.stripe.com" required style={{ display: "block", marginTop: 4, padding: 8, minWidth: 220 }} />
+            </label>
+            <label>
+              Label (optional)
+              <input value={wlLabel} onChange={(e) => setWlLabel(e.target.value)} placeholder="Stripe Checkout" style={{ display: "block", marginTop: 4, padding: 8, minWidth: 160 }} />
+            </label>
+            <button type="submit" disabled={busy}>
+              Add hostname
+            </button>
+          </form>
+          <ul style={{ fontSize: 14, margin: 0, paddingLeft: "1.2rem" }}>
+            {whitelistMerchants.map((m) => (
+              <li key={m.id} style={{ marginBottom: 6 }}>
+                <code>{m.hostname}</code>
+                {m.label ? ` — ${m.label}` : ""}{" "}
+                <button type="button" disabled={busy} onClick={() => void removeWhitelistMerchant(m.id)}>
+                  Remove
+                </button>
+              </li>
+            ))}
+          </ul>
+          <p style={{ fontSize: 13, color: "#64748b", marginBottom: 0 }}>
+            Install from <code>extensions/securepay-checkout</code> in this repo (load unpacked). Set API URL + token
+            in the extension popup.
+          </p>
         </section>
       ) : null}
 
@@ -447,13 +622,25 @@ export function AgencyDashboardPage() {
                 <code>{c.externalRef}</code> · **** {c.last4}
                 {c.label ? ` — ${c.label}` : ""}
                 {c.frozen ? (
-                  <span style={{ color: "#b91c1c", marginLeft: 8 }}>Frozen</span>
+                  <span style={{ color: "#b91c1c", marginLeft: 8 }}>Session freeze</span>
+                ) : null}
+                {c.fullTimeFreeze ? (
+                  <span style={{ color: "#7c2d12", marginLeft: 8 }}>Master freeze</span>
                 ) : null}
                 {permB ? (
-                  <span style={{ marginLeft: 12 }}>
+                  <span style={{ marginLeft: 12, display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <button type="button" disabled={busy} onClick={() => void setCardFrozen(c.id, !c.frozen)}>
-                      {c.frozen ? "Unfreeze" : "Freeze card"}
+                      {c.frozen ? "Unfreeze session" : "Freeze session"}
                     </button>
+                    <label style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.fullTimeFreeze)}
+                        disabled={busy}
+                        onChange={(e) => void setFullTimeFreeze(c.id, e.target.checked)}
+                      />
+                      Full-time freeze (extension + PAN)
+                    </label>
                   </span>
                 ) : null}
               </li>

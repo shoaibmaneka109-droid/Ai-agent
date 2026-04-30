@@ -46,6 +46,7 @@ r.get(
         card_label: string | null;
         allowed_vps_ip: string | null;
         card_frozen_at: Date | null;
+        full_time_freeze: boolean | null;
         payments_authorized_until: Date | null;
       }>(
         `SELECT m.user_id, u.email, m.role,
@@ -54,6 +55,7 @@ r.get(
                 vc.last4,
                 vc.label AS card_label,
                 vc.card_frozen_at,
+                vc.full_time_freeze,
                 m.payments_authorized_until,
                 host(m.allowed_vps_ip) AS allowed_vps_ip
          FROM organization_members m
@@ -76,10 +78,12 @@ r.get(
                 last4: row.last4,
                 label: row.card_label,
                 frozen: Boolean(row.card_frozen_at),
+                fullTimeFreeze: Boolean(row.full_time_freeze),
               }
             : null,
           allowedVpsIp: row.allowed_vps_ip,
           cardFrozen: Boolean(row.card_frozen_at),
+          fullTimeFreeze: Boolean(row.full_time_freeze),
           paymentsAuthorizedUntil: row.payments_authorized_until
             ? new Date(row.payments_authorized_until).toISOString()
             : null,
@@ -153,8 +157,9 @@ r.get(
         last4: string;
         label: string | null;
         card_frozen_at: Date | null;
+        full_time_freeze: boolean;
       }>(
-        `SELECT id, external_ref, last4, label, card_frozen_at FROM organization_virtual_cards
+        `SELECT id, external_ref, last4, label, card_frozen_at, full_time_freeze FROM organization_virtual_cards
          WHERE organization_id = $1 ORDER BY created_at`,
         [req.tenantId]
       );
@@ -165,6 +170,7 @@ r.get(
           last4: v.last4,
           label: v.label,
           frozen: Boolean(v.card_frozen_at),
+          fullTimeFreeze: v.full_time_freeze,
         })),
       });
     } catch (e) {
@@ -257,6 +263,96 @@ r.post(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Failed to update card freeze state" });
+    }
+  }
+);
+
+/** Master full-time freeze: when ON, extension and employee PAN access are denied regardless of session freeze. */
+r.patch(
+  "/virtual-cards/:cardId/full-time-freeze",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireViewCardsAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const cardId = req.params.cardId;
+    if (!cardId) {
+      res.status(400).json({ error: "cardId required" });
+      return;
+    }
+    const body = req.body as { fullTimeFreeze?: boolean };
+    if (typeof body.fullTimeFreeze !== "boolean") {
+      res.status(400).json({ error: "fullTimeFreeze (boolean) required" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rowCount } = await pool.query(
+        `UPDATE organization_virtual_cards SET full_time_freeze = $3
+         WHERE id = $1::uuid AND organization_id = $2`,
+        [cardId, req.tenantId, body.fullTimeFreeze]
+      );
+      if (rowCount === 0) {
+        res.status(404).json({ error: "Virtual card not found in this organization" });
+        return;
+      }
+      res.json({ fullTimeFreeze: body.fullTimeFreeze });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update master freeze" });
+    }
+  }
+);
+
+/** Emergency lockdown: read current state (main admin). */
+r.get(
+  "/emergency-lockdown",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{ emergency_lockdown_at: Date | null }>(
+        `SELECT emergency_lockdown_at FROM organizations WHERE id = $1`,
+        [req.tenantId]
+      );
+      res.json({ emergencyLockdown: Boolean(rows[0]?.emergency_lockdown_at) });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to read lockdown state" });
+    }
+  }
+);
+
+/** Emergency lockdown: freeze all cards for the agency (sets org-wide flag). */
+r.post(
+  "/emergency-lockdown",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as { active?: boolean };
+    if (typeof body.active !== "boolean") {
+      res.status(400).json({ error: "active (boolean) required — true to lock, false to clear" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      await pool.query(
+        `UPDATE organizations SET emergency_lockdown_at = CASE WHEN $2 THEN now() ELSE NULL END
+         WHERE id = $1`,
+        [req.tenantId, body.active]
+      );
+      res.json({ emergencyLockdown: body.active });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update emergency lockdown" });
     }
   }
 );
@@ -472,6 +568,114 @@ r.post(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Fund transfer failed" });
+    }
+  }
+);
+
+/** Main admin: list checkout merchant whitelist (hostnames). */
+r.get(
+  "/checkout-allowed-merchants",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{
+        id: string;
+        hostname: string;
+        label: string | null;
+        created_at: Date;
+      }>(
+        `SELECT id, hostname, label, created_at FROM organization_checkout_allowed_merchants
+         WHERE organization_id = $1 ORDER BY hostname`,
+        [req.tenantId]
+      );
+      res.json({
+        merchants: rows.map((r) => ({
+          id: r.id,
+          hostname: r.hostname,
+          label: r.label,
+          createdAt: r.created_at.toISOString(),
+        })),
+      });
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      if (msg.includes("relation") && msg.includes("organization_checkout_allowed_merchants")) {
+        res.status(503).json({ error: "Run database migration 006_checkout_merchant_whitelist.sql" });
+        return;
+      }
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to list whitelist" });
+    }
+  }
+);
+
+r.post(
+  "/checkout-allowed-merchants",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as { hostname?: string; label?: string };
+    const hostname = body.hostname?.trim().toLowerCase() ?? "";
+    if (!hostname || hostname.length > 253 || !/^[a-z0-9]([a-z0-9.-]*[a-z0-9])?$/.test(hostname)) {
+      res.status(400).json({ error: "hostname must be a valid lowercase hostname (e.g. checkout.stripe.com)" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{ id: string }>(
+        `INSERT INTO organization_checkout_allowed_merchants (organization_id, hostname, label)
+         VALUES ($1, $2, $3)
+         ON CONFLICT (organization_id, hostname) DO UPDATE SET label = COALESCE(EXCLUDED.label, organization_checkout_allowed_merchants.label)
+         RETURNING id`,
+        [req.tenantId, hostname, body.label?.trim() ?? null]
+      );
+      res.status(201).json({ id: rows[0]!.id, hostname });
+    } catch (e: unknown) {
+      const code = (e as { code?: string })?.code;
+      if (code === "42P01") {
+        res.status(503).json({ error: "Run database migration 006_checkout_merchant_whitelist.sql" });
+        return;
+      }
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to add hostname" });
+    }
+  }
+);
+
+r.delete(
+  "/checkout-allowed-merchants/:entryId",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const entryId = req.params.entryId;
+    if (!entryId) {
+      res.status(400).json({ error: "entryId required" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rowCount } = await pool.query(
+        `DELETE FROM organization_checkout_allowed_merchants WHERE id = $1::uuid AND organization_id = $2`,
+        [entryId, req.tenantId]
+      );
+      if (rowCount === 0) {
+        res.status(404).json({ error: "Whitelist entry not found" });
+        return;
+      }
+      res.status(204).end();
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to remove hostname" });
     }
   }
 );

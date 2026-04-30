@@ -1,0 +1,51 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>SecurePay</title>
+    <style>
+      body {
+        font-family: system-ui, sans-serif;
+        width: 320px;
+        padding: 12px;
+        margin: 0;
+      }
+      label {
+        display: block;
+        font-size: 12px;
+        margin-top: 8px;
+        color: #334155;
+      }
+      input {
+        width: 100%;
+        box-sizing: border-box;
+        padding: 8px;
+        margin-top: 4px;
+      }
+      button {
+        margin-top: 12px;
+        width: 100%;
+        padding: 10px;
+        cursor: pointer;
+      }
+      .hint {
+        font-size: 11px;
+        color: #64748b;
+        margin-top: 8px;
+      }
+    </style>
+  </head>
+  <body>
+    <h2 style="margin: 0 0 8px; font-size: 16px">SecurePay</h2>
+    <p class="hint">Employee session — used only on whitelisted checkout pages. Card number is blurred in the page.</p>
+    <label>API base URL (no trailing slash)</label>
+    <input id="apiBase" type="url" placeholder="http://localhost:4000" autocomplete="off" />
+    <label>Organization ID (UUID)</label>
+    <input id="orgId" placeholder="from web app after login" autocomplete="off" />
+    <label>Access token (JWT)</label>
+    <input id="token" type="password" placeholder="Bearer token from login" autocomplete="off" />
+    <button type="button" id="save">Save</button>
+    <p id="status" class="hint"></p>
+    <script src="popup.js"></script>
+  </body>
+</html>
