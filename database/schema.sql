@@ -11,13 +11,19 @@ CREATE TYPE user_type AS ENUM ('solo', 'agency');
 -- Payment / payout providers whose API secrets we store encrypted per tenant
 CREATE TYPE credential_provider AS ENUM ('stripe', 'airwallex');
 
+-- Solo workspace vs company (agency) org — drives trial length and employee caps
+CREATE TYPE organization_kind AS ENUM ('solo_workspace', 'agency');
+
 CREATE TABLE organizations (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name            TEXT NOT NULL,
-  slug            TEXT NOT NULL UNIQUE,
-  billing_email   TEXT,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+  id                    UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name                  TEXT NOT NULL,
+  slug                  TEXT NOT NULL UNIQUE,
+  kind                  organization_kind NOT NULL DEFAULT 'solo_workspace',
+  billing_email         TEXT,
+  trial_ends_at         TIMESTAMPTZ NOT NULL,
+  subscription_ends_at TIMESTAMPTZ,
+  created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
 CREATE TABLE users (

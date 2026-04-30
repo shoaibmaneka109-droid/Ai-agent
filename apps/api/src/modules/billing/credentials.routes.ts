@@ -1,12 +1,14 @@
 import { Router } from "express";
 import type { Request, Response } from "express";
 import { env } from "../../config/env.js";
-import { tenantContext } from "../../middleware/tenantContext.js";
+import { requireAuth } from "../../middleware/requireAuth.js";
+import { requireTenantMembership } from "../../middleware/requireTenantMembership.js";
+import { requireFullSubscription } from "../../middleware/requireFullSubscription.js";
 import { upsertEncryptedCredential } from "./credentials.repository.js";
 
 const r = Router();
 
-r.post("/:provider", tenantContext, async (req: Request, res: Response) => {
+r.post("/:provider", requireAuth, requireTenantMembership, requireFullSubscription, async (req: Request, res: Response) => {
   const provider = req.params.provider;
   if (provider !== "stripe" && provider !== "airwallex") {
     res.status(400).json({ error: "provider must be stripe or airwallex" });

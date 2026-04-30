@@ -4,27 +4,36 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 
 ## Layout
 
-- **`apps/api`** — Express API: `config/`, `middleware/` (tenant context), `lib/crypto` (encryption), `lib/db`, `modules/*` (organizations, billing/credentials).
-- **`apps/web`** — React (Vite): `app/` (shell, styles), `modules/solo`, `modules/agency`, `shared/`.
-- **`packages/shared`** — Cross-cutting TypeScript types (`UserType`, `CredentialProvider`, etc.).
-- **`database/`** — SQL migrations/schema.
+- **`apps/api`** — Express API: `config/`, `middleware/` (JWT, tenant membership, subscription gates), `lib/crypto`, `lib/jwt`, `lib/billing`, `modules/*` (auth, organizations, billing/credentials, autofill).
+- **`apps/web`** — React (Vite): `app/`, `modules/solo`, `modules/agency`, `shared/`.
+- **`packages/shared`** — Types and **billing helpers** (`computeOrgBillingState`, trial constants).
+- **`database/`** — SQL schema.
 
-## Tenants and user types
+## Authentication (JWT)
 
-- **Organizations** are tenants (`organizations`). Users join via `organization_members` with roles.
-- **`users.user_type`**: `solo` (individual) vs `agency` (company-style orgs with multiple members). Enforce in app logic (e.g. solo: single org; agency: invites and RBAC).
+- **`JWT_SECRET`** — required in production; signing uses HS256 via `jsonwebtoken`.
+- **`POST /api/v1/auth/register/solo`** — creates user (`user_type: solo`), **solo** org (`kind: solo_workspace`), **15-day** `trial_ends_at`, owner membership. Returns `accessToken`.
+- **`POST /api/v1/auth/register/agency`** — creates **agency** admin (`user_type: agency`), org `kind: agency`, **30-day** trial, first user as **`admin`**. Returns `accessToken`.
+- **`POST /api/v1/auth/login`** — returns `accessToken`, `defaultOrganizationId`, `userType`.
+- **`GET /api/v1/auth/me`** — bearer token; returns user + **billing** (`accessMode`, `integrationsUnlocked`, trial/subscription dates). **Works in hibernation** so the client can show read-only UI.
+
+## Trials and data hibernation
+
+- **Full access** (`integrationsUnlocked`): trial not expired **or** paid period active (`subscription_ends_at` in the future).
+- **Hibernation**: trial and paid period both ended → user can still authenticate and call **`/auth/me`**, but routes that use **`requireFullSubscription`** return **402** with `code: "HIBERNATION"` (e.g. **`POST /api/v1/credentials/:provider`**, **`POST /api/v1/autofill/preview`**).
+- Shared logic: `packages/shared/src/billing.ts` — `computeOrgBillingState`.
+
+## Agency employees during trial
+
+- While the org is on **agency trial** (trial active and not on paid plan), at most **9** users with role **`member`** may exist (`AGENCY_TRIAL_MAX_EMPLOYEES`).
+- **`POST /api/v1/organizations/:orgId/members/employees`** — admin/owner only; headers: **`Authorization: Bearer <token>`**, **`X-Organization-Id: <same org uuid>`**.
 
 ## Encrypted API keys
 
-- Table **`organization_credentials`** stores **Stripe** / **Airwallex** secrets as **ciphertext + IV + auth tag** (AES-256-GCM). Plaintext never hits the database.
-- Set **`SECUREPAY_MASTER_KEY_BASE64`** (32 raw bytes, base64) in the API environment. Rotate with `key_version` when you add key versioning in app code.
-
-## API (credentials)
-
-`POST /api/v1/credentials/:provider` with headers `X-Organization-Id: <uuid>` and JSON `{ "secret": "...", "label": "optional" }`. Provider path: `stripe` or `airwallex`.
+- **`POST /api/v1/credentials/:provider`** (`stripe` | `airwallex`) — requires JWT, tenant membership, and **active trial or subscription** (hibernation blocks writes).
 
 ## Local setup
 
-1. Create a Postgres database and run `database/schema.sql`.
-2. Copy `apps/api/.env.example` to `apps/api/.env` and fill values.
+1. Create a Postgres database and run `database/schema.sql` (adds `organizations.kind`, `trial_ends_at`, `subscription_ends_at`).
+2. Copy `apps/api/.env.example` to `apps/api/.env` and fill values (`SECUREPAY_MASTER_KEY_BASE64`, `JWT_SECRET`, `DATABASE_URL`).
 3. `npm install` at repo root, then `npm run dev:api` / `npm run dev:web`.

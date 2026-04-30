@@ -33,4 +33,6 @@ export const env = {
   nodeEnv: process.env.NODE_ENV ?? "development",
   databaseUrl: process.env.DATABASE_URL,
   masterKey: () => loadMasterKey(),
+  jwtSecret: process.env.JWT_SECRET ?? (process.env.NODE_ENV === "development" ? "dev-only-insecure-jwt-secret-min-32-chars!!" : requireEnv("JWT_SECRET")),
+  jwtExpiresInDays: Number(process.env.JWT_EXPIRES_IN_DAYS ?? 7),
 };
