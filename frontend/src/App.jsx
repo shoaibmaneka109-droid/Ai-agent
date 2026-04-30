@@ -6,7 +6,7 @@ import LoginPage        from './pages/auth/LoginPage';
 import RegisterPage     from './pages/auth/RegisterPage';
 import DashboardPage    from './pages/dashboard/DashboardPage';
 import PaymentsPage     from './pages/dashboard/PaymentsPage';
-import ApiKeysPage      from './pages/settings/ApiKeysPage';
+import IntegrationsPage from './pages/settings/IntegrationsPage';
 import OrgSettingsPage  from './pages/settings/OrgSettingsPage';
 import TeamPage         from './pages/settings/TeamPage';
 import SubscriptionPage from './pages/settings/SubscriptionPage';
@@ -50,7 +50,7 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"          element={<DashboardPage />} />
           <Route path="payments"           element={<PaymentsPage />} />
-          <Route path="settings/api-keys"      element={<ApiKeysPage />} />
+          <Route path="settings/integrations"   element={<IntegrationsPage />} />
           <Route path="settings/org"           element={<OrgSettingsPage />} />
           <Route path="settings/team"          element={<TeamPage />} />
           <Route path="settings/subscription"  element={<SubscriptionPage />} />
