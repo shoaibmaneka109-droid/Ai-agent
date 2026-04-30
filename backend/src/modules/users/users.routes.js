@@ -4,13 +4,19 @@ const controller = require('./users.controller');
 const validate = require('../../middleware/validate');
 const { authenticate, requireRole } = require('../../middleware/auth');
 const { tenantContext } = require('../../middleware/tenantContext');
+const {
+  requireNotCancelled,
+  trialMemberLimitGuard,
+} = require('../../middleware/subscriptionGuard');
 
 const router = Router();
 router.use(authenticate, tenantContext);
 
-router.get('/', requireRole('owner', 'admin'), controller.listUsers);
-router.get('/:id', controller.getUser);
+// READ: visible even during hibernation (users can audit their own team)
+router.get('/', requireRole('owner', 'admin'), requireNotCancelled, controller.listUsers);
+router.get('/:id', requireNotCancelled, controller.getUser);
 
+// Profile & password: these are "account" actions, always allowed
 router.patch(
   '/me/profile',
   [
@@ -34,14 +40,21 @@ router.post(
   controller.changePassword
 );
 
+// Role changes + deactivation: mutation → requires active subscription
+// AND enforces agency trial member limit on promotions
 router.patch(
   '/:id/role',
   requireRole('owner', 'admin'),
+  trialMemberLimitGuard,
   [body('role').isIn(['admin', 'member'])],
   validate,
   controller.updateUserRole
 );
 
-router.delete('/:id', requireRole('owner', 'admin'), controller.deactivateUser);
+router.delete(
+  '/:id',
+  requireRole('owner', 'admin'),
+  controller.deactivateUser
+);
 
 module.exports = router;

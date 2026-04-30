@@ -76,4 +76,12 @@ export const usersApi = {
   deactivate: (id) => api.delete(`/users/${id}`),
 };
 
+export const subscriptionApi = {
+  getStatus: () => api.get('/subscription'),
+  getEvents: () => api.get('/subscription/events'),
+  activate: (data) => api.post('/subscription/activate', data),
+  cancel: (data) => api.post('/subscription/cancel', data),
+  simulateExpire: () => api.post('/subscription/simulate-expire'),
+};
+
 export default api;

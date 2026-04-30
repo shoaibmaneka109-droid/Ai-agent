@@ -2,6 +2,7 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { logoutUser } from '../../store/slices/authSlice';
+import SubscriptionStatus from './SubscriptionStatus';
 
 const navItems = [
   { to: '/dashboard', icon: '⬛', label: 'Dashboard' },
@@ -9,6 +10,7 @@ const navItems = [
   { to: '/api-keys', icon: '🔑', label: 'API Keys' },
   { to: '/team', icon: '👥', label: 'Team', agencyOnly: true },
   { to: '/settings', icon: '⚙️', label: 'Settings' },
+  { to: '/settings/billing', icon: '💰', label: 'Billing' },
 ];
 
 export default function Sidebar() {
@@ -63,20 +65,8 @@ export default function Sidebar() {
         </div>
         <div>
           <div style={{ fontWeight: 700, fontSize: 15, color: 'var(--color-text)' }}>SecurePay</div>
-          <div
-            style={{
-              fontSize: 11,
-              color: 'var(--color-text-muted)',
-              background: 'var(--color-primary-light)',
-              color: 'var(--color-primary)',
-              padding: '1px 6px',
-              borderRadius: 4,
-              fontWeight: 500,
-              marginTop: 2,
-              display: 'inline-block',
-            }}
-          >
-            {isAgency ? 'Agency' : 'Solo'}
+          <div style={{ marginTop: 3 }}>
+            <SubscriptionStatus />
           </div>
         </div>
       </div>

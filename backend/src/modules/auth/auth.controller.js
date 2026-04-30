@@ -5,6 +5,7 @@ const { v4: uuidv4 } = require('uuid');
 const { query, transaction } = require('../../config/database');
 const config = require('../../config');
 const logger = require('../../services/logger');
+const { PLAN_TRIAL_CONFIG, getSubscriptionContext } = require('../../services/subscription');
 
 const SALT_ROUNDS = 12;
 
@@ -28,9 +29,15 @@ const hashRefreshToken = (token) =>
 /**
  * POST /auth/register
  * Creates a new organization + owner user in a single transaction.
+ * Applies plan-specific trial configuration on creation.
+ *
+ * Solo plan:   15-day trial, max 1 member during trial
+ * Agency plan: 30-day trial, max 10 members (owner + 9 employees) during trial
  */
 const register = async (req, res, next) => {
   const { email, password, fullName, organizationName, planType } = req.body;
+  const plan = planType || 'solo';
+
   try {
     const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
     if (existing.rows.length > 0) {
@@ -44,8 +51,9 @@ const register = async (req, res, next) => {
       .replace(/^-|-$/g, '')
       .slice(0, 100);
 
-    const maxMembers = planType === 'agency' ? 999 : 1;
-    const maxApiKeys = planType === 'agency' ? 10 : 2;
+    const trialConfig = PLAN_TRIAL_CONFIG[plan] || PLAN_TRIAL_CONFIG.solo;
+    const maxMembers = plan === 'agency' ? 999 : 1;
+    const maxApiKeys = plan === 'agency' ? 10 : 2;
 
     const result = await transaction(async (client) => {
       // Ensure slug uniqueness
@@ -55,15 +63,33 @@ const register = async (req, res, next) => {
       );
       const uniqueSlug = slugCheck.length > 0 ? `${slug}-${Date.now()}` : slug;
 
+      // Create org with trial window baked in at INSERT time
       const { rows: [org] } = await client.query(
-        `INSERT INTO organizations (name, slug, plan_type, max_members, max_api_keys, billing_email)
-         VALUES ($1, $2, $3, $4, $5, $6) RETURNING id, name, slug, plan_type`,
-        [organizationName, uniqueSlug, planType || 'solo', maxMembers, maxApiKeys, email]
+        `INSERT INTO organizations
+           (name, slug, plan_type, max_members, max_api_keys, billing_email,
+            subscription_status, trial_duration_days, trial_ends_at, trial_member_limit)
+         VALUES ($1, $2, $3, $4, $5, $6,
+                 'trialing', $7,
+                 NOW() + ($7 || ' days')::INTERVAL,
+                 $8)
+         RETURNING id, name, slug, plan_type, subscription_status,
+                   trial_duration_days, trial_ends_at, trial_member_limit`,
+        [organizationName, uniqueSlug, plan, maxMembers, maxApiKeys, email,
+         trialConfig.trialDays, trialConfig.trialMemberLimit]
+      );
+
+      // Record the trial_started event
+      await client.query(
+        `INSERT INTO subscription_events
+           (organization_id, event_type, from_status, to_status, note)
+         VALUES ($1, 'trial_started', NULL, 'trialing', $2)`,
+        [org.id, `${plan} trial started: ${trialConfig.trialDays} days`]
       );
 
       const { rows: [user] } = await client.query(
         `INSERT INTO users (id, organization_id, email, password_hash, full_name, role)
-         VALUES ($1, $2, $3, $4, $5, 'owner') RETURNING id, email, full_name, role`,
+         VALUES ($1, $2, $3, $4, $5, 'owner')
+         RETURNING id, email, full_name, role`,
         [uuidv4(), org.id, email, passwordHash, fullName]
       );
 
@@ -84,7 +110,12 @@ const register = async (req, res, next) => {
       [result.user.id, refreshHash, expiresAt, req.ip, req.headers['user-agent']]
     );
 
-    logger.info('User registered', { userId: result.user.id, orgId: result.org.id });
+    logger.info('User registered', {
+      userId: result.user.id,
+      orgId: result.org.id,
+      plan,
+      trialDays: result.org.trial_duration_days,
+    });
 
     res.status(201).json({
       message: 'Registration successful',
@@ -102,6 +133,13 @@ const register = async (req, res, next) => {
         slug: result.org.slug,
         planType: result.org.plan_type,
       },
+      subscription: {
+        status: result.org.subscription_status,
+        trialDurationDays: result.org.trial_duration_days,
+        trialEndsAt: result.org.trial_ends_at,
+        trialMemberLimit: result.org.trial_member_limit,
+        featuresLocked: false,
+      },
     });
   } catch (err) {
     next(err);
@@ -110,6 +148,8 @@ const register = async (req, res, next) => {
 
 /**
  * POST /auth/login
+ * Always returns a subscription context so the frontend can decide
+ * immediately whether to show the hibernation banner or a trial countdown.
  */
 const login = async (req, res, next) => {
   const { email, password } = req.body;
@@ -147,6 +187,9 @@ const login = async (req, res, next) => {
 
     await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
+    // Load full subscription context — also performs lazy expiry check
+    const subscriptionCtx = await getSubscriptionContext(user.org_id);
+
     res.json({
       accessToken: access,
       refreshToken: refresh,
@@ -156,6 +199,18 @@ const login = async (req, res, next) => {
         name: user.org_name,
         slug: user.slug,
         planType: user.plan_type,
+      },
+      subscription: {
+        status: subscriptionCtx.status,
+        trialDurationDays: subscriptionCtx.trialDurationDays,
+        trialEndsAt: subscriptionCtx.trialEndsAt,
+        trialDaysRemaining: subscriptionCtx.trialDaysRemaining,
+        subscriptionEndsAt: subscriptionCtx.subscriptionEndsAt,
+        subscriptionDaysRemaining: subscriptionCtx.subscriptionDaysRemaining,
+        featuresLocked: subscriptionCtx.featuresLocked,
+        hibernatedAt: subscriptionCtx.hibernatedAt,
+        canAddMembers: subscriptionCtx.canAddMembers,
+        trialMemberLimit: subscriptionCtx.trialMemberLimit,
       },
     });
   } catch (err) {
@@ -238,23 +293,43 @@ const logout = async (req, res, next) => {
 /**
  * GET /auth/me
  */
-const me = async (req, res) => {
-  const { id, email, role, organization_id, plan_type } = req.user;
-  const { rows } = await require('../../config/database').query(
-    'SELECT full_name, avatar_url, email_verified FROM users WHERE id = $1',
-    [id]
-  );
-  const u = rows[0] || {};
-  res.json({
-    id,
-    email,
-    fullName: u.full_name,
-    avatarUrl: u.avatar_url,
-    emailVerified: u.email_verified,
-    role,
-    organizationId: organization_id,
-    planType: plan_type,
-  });
+const me = async (req, res, next) => {
+  const { id, email, role, organization_id } = req.user;
+  try {
+    const { rows } = await query(
+      'SELECT full_name, avatar_url, email_verified FROM users WHERE id = $1',
+      [id]
+    );
+    const u = rows[0] || {};
+    const sub = req.subscription;
+
+    res.json({
+      id,
+      email,
+      fullName: u.full_name,
+      avatarUrl: u.avatar_url,
+      emailVerified: u.email_verified,
+      role,
+      organizationId: organization_id,
+      planType: sub?.planType,
+      subscription: sub
+        ? {
+            status: sub.status,
+            trialDurationDays: sub.trialDurationDays,
+            trialEndsAt: sub.trialEndsAt,
+            trialDaysRemaining: sub.trialDaysRemaining,
+            subscriptionEndsAt: sub.subscriptionEndsAt,
+            subscriptionDaysRemaining: sub.subscriptionDaysRemaining,
+            featuresLocked: sub.featuresLocked,
+            hibernatedAt: sub.hibernatedAt,
+            canAddMembers: sub.canAddMembers,
+            trialMemberLimit: sub.trialMemberLimit,
+          }
+        : null,
+    });
+  } catch (err) {
+    next(err);
+  }
 };
 
 module.exports = { register, login, refresh, logout, me };

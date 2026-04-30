@@ -12,6 +12,7 @@ import PaymentsPage from './components/payments/PaymentsPage';
 import ApiKeysPage from './components/organizations/ApiKeysPage';
 import TeamPage from './components/organizations/TeamPage';
 import SettingsPage from './components/organizations/SettingsPage';
+import BillingPage from './components/organizations/BillingPage';
 
 export default function App() {
   return (
@@ -26,6 +27,7 @@ export default function App() {
             <Route path="/api-keys" element={<ApiKeysPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/settings/billing" element={<BillingPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

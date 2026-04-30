@@ -4,6 +4,7 @@ import Card from '../common/Card';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
 import Input from '../common/Input';
+import FeatureLock from '../common/FeatureLock';
 
 export default function ApiKeysPage() {
   const [keys, setKeys] = useState([]);
@@ -50,7 +51,9 @@ export default function ApiKeysPage() {
             Securely stored with AES-256-GCM encryption
           </p>
         </div>
-        <Button onClick={() => setShowAdd(!showAdd)}>+ Add Key</Button>
+        <FeatureLock message="Reactivate subscription to add API keys">
+          <Button onClick={() => setShowAdd(!showAdd)}>+ Add Key</Button>
+        </FeatureLock>
       </div>
 
       {showAdd && (

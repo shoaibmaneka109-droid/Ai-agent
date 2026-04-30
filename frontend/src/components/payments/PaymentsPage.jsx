@@ -4,6 +4,7 @@ import Card from '../common/Card';
 import Badge from '../common/Badge';
 import Button from '../common/Button';
 import Input from '../common/Input';
+import FeatureLock from '../common/FeatureLock';
 
 const statusBadge = (status) => {
   const map = { completed: 'success', failed: 'danger', pending: 'warning', refunded: 'default', cancelled: 'default' };
@@ -63,7 +64,9 @@ export default function PaymentsPage() {
             Manage and track all payment transactions
           </p>
         </div>
-        <Button onClick={() => setShowCreate(!showCreate)}>+ New Payment</Button>
+        <FeatureLock message="Reactivate subscription to create payments">
+          <Button onClick={() => setShowCreate(!showCreate)}>+ New Payment</Button>
+        </FeatureLock>
       </div>
 
       {/* Create form */}

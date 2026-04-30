@@ -4,16 +4,23 @@ const controller = require('./apiKeys.controller');
 const validate = require('../../middleware/validate');
 const { authenticate, requireRole } = require('../../middleware/auth');
 const { tenantContext } = require('../../middleware/tenantContext');
+const {
+  requireActiveSubscription,
+  requireNotCancelled,
+} = require('../../middleware/subscriptionGuard');
 
 const router = Router();
 router.use(authenticate, tenantContext);
 
-router.get('/', controller.listApiKeys);
-router.get('/:id', controller.getApiKey);
+// READ operations: allowed in hibernation (Data Hibernation — can view, not use)
+router.get('/', requireNotCancelled, controller.listApiKeys);
+router.get('/:id', requireNotCancelled, controller.getApiKey);
 
+// WRITE / ACTIVE-USE operations: require an active/trialing subscription
 router.post(
   '/',
   requireRole('owner', 'admin'),
+  requireActiveSubscription,
   [
     body('name').trim().isLength({ min: 1, max: 100 }),
     body('provider').isIn(['stripe', 'airwallex', 'custom']),
@@ -28,6 +35,7 @@ router.post(
 router.put(
   '/:id/rotate',
   requireRole('owner', 'admin'),
+  requireActiveSubscription,
   [
     body('secretKey').notEmpty(),
     body('publishableKey').optional().isString(),
@@ -36,6 +44,6 @@ router.put(
   controller.rotateApiKey
 );
 
-router.delete('/:id', requireRole('owner', 'admin'), controller.deleteApiKey);
+router.delete('/:id', requireRole('owner', 'admin'), requireActiveSubscription, controller.deleteApiKey);
 
 module.exports = router;
