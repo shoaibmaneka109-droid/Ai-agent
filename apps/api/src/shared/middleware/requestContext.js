@@ -7,6 +7,8 @@ function requestContext(req, res, next) {
   req.context = {
     requestId,
     tenantId,
+    subscription: null,
+    auth: null,
   };
 
   res.setHeader("x-request-id", requestId);

@@ -69,6 +69,24 @@ Provider credential lifecycle:
 - encrypt secrets,
 - return safe metadata without exposing plaintext values.
 
+### `src/modules/auth`
+
+Authentication and tenant session management:
+
+- JWT access and refresh token issuance,
+- password hashing with PBKDF2,
+- tenant bootstrap during registration,
+- login while preserving read-only access during hibernation.
+
+### `src/modules/subscriptions`
+
+Subscription lifecycle and trial enforcement:
+
+- Solo trial duration: 15 days,
+- Agency trial duration: 30 days,
+- Agency trial employee cap: 9 employees plus the initial admin/owner,
+- hibernation state calculation after trial or subscription expiry.
+
 ## Encryption approach
 
 Sensitive API keys such as Stripe and Airwallex credentials are encrypted using AES-256-GCM.
@@ -105,13 +123,26 @@ AES-GCM was chosen over plain AES-CBC because authenticated encryption prevents 
 
 1. Frontend authenticates a user.
 2. API resolves the active tenant from auth/session context.
-3. Middleware attaches `requestContext.tenantId`.
-4. Service methods require a tenant id for reads and writes.
-5. When storing provider credentials:
+3. JWT middleware loads user identity, membership, and subscription status.
+4. Read-only routes remain available even when a tenant is hibernated.
+5. Feature-gated routes reject requests when the subscription is expired or hibernated.
+6. When storing provider credentials:
    - validate ownership,
    - encrypt values,
    - persist only ciphertext payloads,
    - log the change in `audit_logs`.
+
+## Trial and hibernation rules
+
+- `solo` tenants receive a 15-day free trial.
+- `agency` tenants receive a 30-day free trial.
+- During an active agency trial, the tenant may have up to 9 employees in addition to the initial admin/owner.
+- When the trial or paid period expires, the tenant transitions into a hibernated mode:
+  - login remains available,
+  - tenant data remains readable,
+  - API write features are locked,
+  - auto-fill is locked,
+  - payment restoration is required to re-enable premium capabilities.
 
 ## Initial frontend areas
 
@@ -123,8 +154,8 @@ The React shell is intentionally minimal and oriented around future expansion:
 
 ## Recommended next steps
 
-1. Add authentication and session management.
-2. Introduce a database access layer with parameterized tenant-safe repositories.
+1. Introduce a full billing webhook flow to convert trials into paid subscriptions.
+2. Add email verification and password reset flows.
 3. Implement migrations with a tool such as Prisma, Knex, or node-pg-migrate.
 4. Add secret rotation workflows and key-version re-encryption jobs.
-5. Expand RLS usage in application integration tests.
+5. Expand RLS and subscription-state coverage in integration tests.

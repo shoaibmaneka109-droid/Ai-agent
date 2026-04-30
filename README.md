@@ -6,6 +6,7 @@ Initial scaffold for a modular multi-tenant SaaS platform built with:
 - React frontend powered by Vite
 - PostgreSQL database schema with tenant isolation primitives
 - AES-256-GCM encryption utilities for sensitive payment-provider credentials
+- JWT authentication with tenant-scoped sessions and subscription-aware feature gates
 
 ## Workspace structure
 
@@ -51,12 +52,32 @@ storage with AES-256-GCM using:
 - an authentication tag for tamper detection
 - tenant/provider/account label as additional authenticated data
 
+## Authentication and subscription rules
+
+The backend now includes JWT-based authentication and subscription lifecycle logic:
+
+- access tokens for authenticated API requests
+- refresh tokens persisted in `auth_refresh_sessions`
+- `solo` tenants receive a 15-day free trial
+- `agency` tenants receive a 30-day free trial
+- agency trials can include up to 9 employees in addition to the admin account
+- once a trial or paid period expires, the tenant enters a hibernated read-only state
+
+During hibernation:
+
+- users can still log in
+- users can still view tenant data
+- API write features are locked
+- Auto-fill is locked until billing is restored
+
 ## Key files
 
 - `docs/architecture.md`: modular architecture and tenancy design
 - `database/schema.sql`: initial PostgreSQL schema and RLS policies
 - `apps/api/src/shared/crypto/aes256.js`: encryption helper
 - `apps/api/src/modules/secrets`: secret-management module scaffold
+- `apps/api/src/modules/auth`: JWT authentication, registration, login, refresh, and session endpoints
+- `apps/api/src/modules/subscriptions/subscriptions.service.js`: trial expiration and hibernation logic
 
 ## Local setup
 
@@ -64,6 +85,14 @@ storage with AES-256-GCM using:
 2. Install workspace dependencies with `npm install`.
 3. Start the API with `npm run dev:api`.
 4. Start the frontend with `npm run dev:web`.
+
+### Required environment variables
+
+- `DATABASE_URL`
+- `ENCRYPTION_MASTER_KEY`
+- `JWT_SECRET`
+- `JWT_ACCESS_TTL_SECONDS`
+- `JWT_REFRESH_TTL_SECONDS`
 
 ## Notes
 
