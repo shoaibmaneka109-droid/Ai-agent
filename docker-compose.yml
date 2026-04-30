@@ -1,0 +1,59 @@
+version: '3.9'
+
+services:
+  # ── PostgreSQL ──────────────────────────────────────────────────────────────
+  postgres:
+    image: postgres:16-alpine
+    container_name: securepay_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB:       securepay
+      POSTGRES_USER:     securepay_user
+      POSTGRES_PASSWORD: securepay_pass
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./database/migrations:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U securepay_user -d securepay"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── Backend API ─────────────────────────────────────────────────────────────
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: securepay_backend
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      DB_HOST:  postgres
+      DB_PORT:  "5432"
+      DB_NAME:  securepay
+      DB_USER:  securepay_user
+      DB_PASSWORD: securepay_pass
+    ports:
+      - "4000:4000"
+
+  # ── Frontend ────────────────────────────────────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: securepay_frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    ports:
+      - "3000:80"
+
+volumes:
+  postgres_data:
