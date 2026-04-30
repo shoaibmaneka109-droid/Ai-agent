@@ -25,6 +25,12 @@ export function AgencyDashboardPage() {
   const [employees, setEmployees] = useState<EmployeeRow[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [organizationRole, setOrganizationRole] = useState<"owner" | "admin" | "member" | null | undefined>(
+    undefined
+  );
+  const [meLoading, setMeLoading] = useState(true);
+
+  const isMainAdmin = organizationRole === "owner" || organizationRole === "admin";
 
   const [newCardRef, setNewCardRef] = useState("");
   const [newCardLast4, setNewCardLast4] = useState("");
@@ -50,6 +56,29 @@ export function AgencyDashboardPage() {
       setError(e.body?.error ?? "Failed to load dashboard (sign in as admin?)");
     }
   }, [orgId]);
+
+  const loadMe = useCallback(async () => {
+    if (!orgId) {
+      setOrganizationRole(undefined);
+      setMeLoading(false);
+      return;
+    }
+    setMeLoading(true);
+    try {
+      const me = await apiJson<{
+        user?: { organizationRole?: "owner" | "admin" | "member" | null };
+      }>("/api/v1/auth/me");
+      setOrganizationRole(me.user?.organizationRole ?? null);
+    } catch {
+      setOrganizationRole(null);
+    } finally {
+      setMeLoading(false);
+    }
+  }, [orgId]);
+
+  useEffect(() => {
+    void loadMe();
+  }, [loadMe]);
 
   useEffect(() => {
     void load();
@@ -176,14 +205,41 @@ export function AgencyDashboardPage() {
     );
   }
 
+  if (meLoading) {
+    return (
+      <div style={{ maxWidth: 900 }}>
+        <p style={{ color: "#64748b" }}>Loading…</p>
+      </div>
+    );
+  }
+
+  if (!isMainAdmin) {
+    return (
+      <div style={{ maxWidth: 720 }}>
+        <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
+        <p style={{ color: "#64748b", fontSize: 15 }}>
+          This page is for <strong>organization admins</strong> (main admin) to register virtual cards, add employees,
+          and assign each employee&apos;s <strong>mandatory VPS IP</strong>. Your account is an employee; card access is
+          restricted to requests from your registered IP — use <Link to="/agency/my-card">My virtual card</Link>.
+        </p>
+        <p>
+          <Link to="/agency">Home</Link> · <Link to="/agency/my-card">My card</Link>
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div style={{ maxWidth: 900 }}>
       <h1 style={{ marginTop: 0 }}>Agency dashboard</h1>
       <p style={{ color: "#64748b", fontSize: 14 }}>
-        Register each issued virtual card, then add employees with a <strong>mandatory VPS IP</strong>. Employees
-        can only load full card details when their request comes from that IP (see API{" "}
-        <code>TRUST_PROXY</code> behind a load balancer). Admins can <strong>freeze cards</strong> and set a{" "}
-        <strong>time-bound authorized payment</strong> window per employee.
+        As <strong>main admin</strong>, register each issued virtual card, then add employees. Each employee must have
+        a <strong>virtual card</strong> and a <strong>mandatory VPS IP</strong>. The API middleware{" "}
+        <code>requireEmployeeVpsIpForCardAccess</code> compares the request client IP to{" "}
+        <code>organization_members.allowed_vps_ip</code>; employees only receive sensitive card data when they match.
+        Set <code>TRUST_PROXY=1</code> behind your load balancer so <code>X-Forwarded-For</code> reflects the employee
+        VPS. Admins can <strong>freeze cards</strong> and set a <strong>time-bound authorized payment</strong> window
+        per employee.
       </p>
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
 

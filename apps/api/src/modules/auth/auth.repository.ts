@@ -33,6 +33,20 @@ export async function findUserById(id: string): Promise<{
   return rows[0] ?? null;
 }
 
+export async function findOrgMembershipRole(
+  organizationId: string,
+  userId: string
+): Promise<"owner" | "admin" | "member" | null> {
+  const pool = getPool();
+  const { rows } = await pool.query<{ role: string }>(
+    `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
+    [organizationId, userId]
+  );
+  const r = rows[0]?.role;
+  if (r === "owner" || r === "admin" || r === "member") return r;
+  return null;
+}
+
 export async function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }

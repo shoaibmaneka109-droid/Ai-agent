@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from "express";
 import { getPool } from "../lib/db/pool.js";
 import { getRequestClientIp, clientIpMatchesAllowed } from "../lib/requestIp.js";
+import { env } from "../config/env.js";
 
 /**
  * For employees (`member` role): request IP must match `organization_members.allowed_vps_ip`
@@ -49,6 +50,8 @@ export async function requireEmployeeVpsIpForCardAccess(
         error: "Card details are only available from your registered VPS IP address.",
         code: "VPS_IP_MISMATCH",
         expectedIp: allowed,
+        observedIp: clientIp,
+        trustProxy: env.trustProxy,
       });
       return;
     }

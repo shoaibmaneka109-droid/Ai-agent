@@ -24,7 +24,7 @@ export function AgencyLoginPage() {
         orgId: null,
       });
       setSession(data.accessToken, data.defaultOrganizationId);
-      nav("/agency/settings/integrations", { replace: true });
+      nav("/agency/dashboard", { replace: true });
     } catch (err: unknown) {
       const e = err as { body?: { error?: string }; message?: string };
       setError(e.body && typeof e.body === "object" && "error" in e.body ? String((e.body as { error: string }).error) : e.message ?? "Login failed");

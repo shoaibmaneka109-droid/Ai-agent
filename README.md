@@ -16,7 +16,7 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 - **`POST /api/v1/auth/register/solo`** — creates user (`user_type: solo`), **solo** org (`kind: solo_workspace`), **15-day** `trial_ends_at`, owner membership. Returns `accessToken`.
 - **`POST /api/v1/auth/register/agency`** — creates **agency** admin (`user_type: agency`), org `kind: agency`, **30-day** trial, first user as **`admin`**. Returns `accessToken`.
 - **`POST /api/v1/auth/login`** — returns `accessToken`, `defaultOrganizationId`, `userType`.
-- **`GET /api/v1/auth/me`** — bearer token; returns user + **billing** (`accessMode`, `integrationsUnlocked`, trial/subscription dates). **Works in hibernation** so the client can show read-only UI.
+- **`GET /api/v1/auth/me`** — bearer token; returns user + **billing** (`accessMode`, `integrationsUnlocked`, trial/subscription dates). Includes **`user.organizationRole`** (`owner` \| `admin` \| `member`) for the user’s **default** organization so the agency dashboard can distinguish main admin from employees. **Works in hibernation** so the client can show read-only UI.
 
 ## Trials and data hibernation
 
@@ -33,8 +33,8 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 
 - **`organization_virtual_cards`** — per-org registry of issued cards (`external_ref`, `last4`, `label`).
 - **`organization_members.virtual_card_id`** + **`allowed_vps_ip`** — each employee must be mapped to a card and a **mandatory VPS IP**.
-- **Admin UI**: **`/agency/dashboard`** — register cards, add employees, edit mappings.
-- **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** compares **`getRequestClientIp(req)`** to the DB IP; mismatch → **403** `VPS_IP_MISMATCH`. Owners/admins skip IP check (they do not receive simulated full PAN).
+- **Admin UI**: **`/agency/dashboard`** — main admin only (owner/admin): register cards, add employees, edit mappings. Employees see a short message with a link to **My virtual card**.
+- **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** loads **`organization_members.allowed_vps_ip`** and compares it to **`getRequestClientIp(req)`** using **`ip-address`** canonical equality (IPv4/IPv6); mismatch → **403** `VPS_IP_MISMATCH` (body includes **`observedIp`**, **`expectedIp`**, **`trustProxy`**). Owners/admins skip IP check (they do not receive simulated full PAN).
 - **Production**: set **`TRUST_PROXY=1`** and place Express behind a proxy that sets **`X-Forwarded-For`** so the client IP reflects the employee’s VPS. See `apps/api/src/lib/requestIp.ts` and `apps/api/src/index.ts` (`app.set('trust proxy', 1)`).
 
 Upgrade: if your DB predates these columns, run **`database/migrations/003_employee_vps_virtual_cards.sql`**, then **`database/migrations/004_card_freeze_payment_authorization.sql`** (card freeze + employee payment authorization window).

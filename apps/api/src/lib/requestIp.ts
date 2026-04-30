@@ -1,4 +1,6 @@
+import net from "node:net";
 import type { Request } from "express";
+import { Address4, Address6 } from "ip-address";
 import { env } from "../config/env.js";
 
 function forwardedClientIp(req: Request): string | null {
@@ -37,9 +39,36 @@ export function normalizeIpString(ip: string): string {
   return t;
 }
 
+/** Canonical form for equality (IPv4 dotted quad; IPv6 full lowercase compressed form). */
+export function canonicalIpForCompare(ip: string): string | null {
+  const n = normalizeIpString(ip);
+  if (!n) return null;
+  if (net.isIPv4(n)) {
+    try {
+      return new Address4(n).correctForm();
+    } catch {
+      return null;
+    }
+  }
+  if (net.isIPv6(n)) {
+    try {
+      return new Address6(n).canonicalForm();
+    } catch {
+      return null;
+    }
+  }
+  return null;
+}
+
+/**
+ * True when the observed client IP is the same host as the DB-stored VPS IP (IPv4 or IPv6).
+ */
 export function clientIpMatchesAllowed(clientIp: string | null, allowedFromDb: string | null): boolean {
   if (!clientIp || !allowedFromDb) return false;
-  const a = normalizeIpString(clientIp);
-  const b = normalizeIpString(allowedFromDb);
-  return a === b;
+  const a = canonicalIpForCompare(clientIp);
+  const b = canonicalIpForCompare(allowedFromDb);
+  if (a && b) return a === b;
+  const fa = normalizeIpString(clientIp);
+  const fb = normalizeIpString(allowedFromDb);
+  return fa === fb;
 }
