@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
-import { useSelector } from 'react-redux';
+import { useSelector, useDispatch } from 'react-redux';
 import { Link } from 'react-router-dom';
 import Card from '../components/common/Card';
 import Badge from '../components/common/Badge';
 import { listPayments } from '../services/paymentsService';
 import { listApiKeys } from '../services/apiKeysService';
+import { refreshSubscriptionThunk } from '../store/slices/authSlice';
 
 const planColors = { free: 'gray', starter: 'blue', growth: 'indigo', enterprise: 'indigo' };
 const statusColors = { succeeded: 'green', failed: 'red', pending: 'yellow', refunded: 'gray', cancelled: 'gray' };
@@ -18,13 +19,17 @@ const StatCard = ({ label, value, sub }) => (
 );
 
 const DashboardPage = () => {
-  const { user, org } = useSelector((s) => s.auth);
+  const dispatch = useDispatch();
+  const { user, org, subscription } = useSelector((s) => s.auth);
   const [payments, setPayments] = useState([]);
   const [apiKeys, setApiKeys] = useState([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     if (!org?.id) return;
+    // Refresh subscription state from server on every dashboard mount
+    dispatch(refreshSubscriptionThunk(org.id));
+
     const load = async () => {
       try {
         const [pmRes, keyRes] = await Promise.all([
@@ -40,7 +45,7 @@ const DashboardPage = () => {
       }
     };
     load();
-  }, [org?.id]);
+  }, [org?.id, dispatch]);
 
   const totalVolume = payments
     .filter((p) => p.status === 'succeeded')
@@ -61,6 +66,23 @@ const DashboardPage = () => {
           </div>
         </div>
       </div>
+
+      {/* Hibernation notice */}
+      {subscription && !subscription.hasFullAccess && (
+        <div className="mb-6 p-4 rounded-xl bg-red-50 border border-red-200 flex items-start gap-3">
+          <span className="text-xl mt-0.5">🔒</span>
+          <div>
+            <p className="font-semibold text-red-800 text-sm">Account in Data Hibernation</p>
+            <p className="text-xs text-red-700 mt-0.5">
+              Your payment integrations and API features are locked.
+              You can view all historical data below.{' '}
+              <Link to="/settings/billing" className="font-semibold underline">
+                Reactivate your plan →
+              </Link>
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Stats */}
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-8">

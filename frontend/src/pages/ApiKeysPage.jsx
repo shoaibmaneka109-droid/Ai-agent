@@ -6,6 +6,7 @@ import Badge from '../components/common/Badge';
 import Button from '../components/common/Button';
 import Input from '../components/common/Input';
 import Alert from '../components/common/Alert';
+import HibernationGate from '../components/common/HibernationGate';
 import {
   listApiKeys, createApiKey, toggleApiKey, deleteApiKey, rotateApiKey,
 } from '../services/apiKeysService';
@@ -95,6 +96,7 @@ const ApiKeysPage = () => {
 
       {/* Add key form */}
       {showForm && (
+        <HibernationGate feature="Adding API Keys">
         <Card title="New API Key" className="mb-6">
           <form onSubmit={handleSubmit(onSubmit)} className="space-y-4 max-w-lg">
             <div>
@@ -144,6 +146,7 @@ const ApiKeysPage = () => {
             <Button type="submit" loading={formLoading}>Save Key</Button>
           </form>
         </Card>
+        </HibernationGate>
       )}
 
       {/* Keys list */}

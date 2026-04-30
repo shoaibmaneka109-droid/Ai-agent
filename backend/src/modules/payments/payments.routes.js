@@ -3,6 +3,7 @@ const { body, param, query: queryValidator } = require('express-validator');
 const paymentsService = require('./payments.service');
 const authenticate = require('../../shared/middleware/authenticate');
 const { authorize, tenantGuard } = require('../../shared/middleware/authorize');
+const { requireFullAccess } = require('../../shared/middleware/featureLock');
 const validate = require('../../shared/middleware/validate');
 const { sendSuccess, sendCreated } = require('../../shared/utils/apiResponse');
 
@@ -29,8 +30,10 @@ router.get(
 );
 
 // POST /organizations/:organizationId/payments/intent
+// Creating payment intents requires full access (locked during hibernation)
 router.post(
   '/intent',
+  requireFullAccess,
   authorize(['owner', 'admin', 'member']),
   validate([
     body('amount').isInt({ min: 1 }).withMessage('Amount must be a positive integer (smallest currency unit)'),

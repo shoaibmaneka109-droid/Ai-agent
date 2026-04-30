@@ -3,7 +3,9 @@ const { parsePagination, buildPaginationMeta } = require('../../shared/utils/pag
 
 const getOrganization = async (organizationId) => {
   const result = await query(
-    `SELECT id, name, slug, type, plan, is_active, settings, created_at, updated_at
+    `SELECT id, name, slug, type, plan, is_active, settings,
+            subscription_status, trial_starts_at, trial_ends_at,
+            hibernated_at, trial_member_limit, created_at, updated_at
      FROM organizations
      WHERE id = $1`,
     [organizationId]
@@ -71,6 +73,43 @@ const inviteMember = async (organizationId, { email, role, invitedById }) => {
       const err = new Error('User already belongs to this organization');
       err.statusCode = 409;
       throw err;
+    }
+
+    // ── Trial member seat cap ──────────────────────────────────────────────
+    // During a free trial, agency orgs are capped at trial_member_limit total
+    // users (owner inclusive). Solo orgs can never add other members.
+    const orgResult = await client.query(
+      `SELECT subscription_status, trial_member_limit, type FROM organizations WHERE id = $1`,
+      [organizationId]
+    );
+
+    if (orgResult.rows.length > 0) {
+      const org = orgResult.rows[0];
+
+      if (org.type === 'solo') {
+        const err = new Error(
+          'Solo accounts cannot add team members. Upgrade to an Agency plan to invite employees.'
+        );
+        err.statusCode = 403;
+        throw err;
+      }
+
+      if (org.subscription_status === 'trialing') {
+        const countResult = await client.query(
+          'SELECT COUNT(*) FROM users WHERE organization_id = $1',
+          [organizationId]
+        );
+        const currentCount = parseInt(countResult.rows[0].count, 10);
+        if (currentCount >= org.trial_member_limit) {
+          const err = new Error(
+            `Trial accounts are limited to ${org.trial_member_limit} members ` +
+            `(including the owner). Upgrade to add more employees.`
+          );
+          err.statusCode = 403;
+          err.code = 'TRIAL_MEMBER_LIMIT_REACHED';
+          throw err;
+        }
+      }
     }
 
     const result = await client.query(

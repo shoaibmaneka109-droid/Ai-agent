@@ -2,12 +2,14 @@ import React from 'react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useDispatch, useSelector } from 'react-redux';
 import { logoutThunk } from '../../store/slices/authSlice';
+import TrialProgress from '../common/TrialProgress';
 
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '▦' },
   { to: '/payments', label: 'Payments', icon: '💳' },
   { to: '/api-keys', label: 'API Keys', icon: '🔑' },
   { to: '/team', label: 'Team', icon: '👥' },
+  { to: '/settings/billing', label: 'Billing', icon: '📋' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },
 ];
 
@@ -62,6 +64,9 @@ const Sidebar = () => {
           </NavLink>
         ))}
       </nav>
+
+      {/* Trial progress bar */}
+      <TrialProgress />
 
       {/* User info + logout */}
       <div className="px-4 py-4 border-t border-gray-700">

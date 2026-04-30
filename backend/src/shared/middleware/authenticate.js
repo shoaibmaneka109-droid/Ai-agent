@@ -28,7 +28,9 @@ const authenticate = async (req, res, next) => {
   try {
     const result = await query(
       `SELECT u.id, u.email, u.role, u.is_active, u.organization_id,
-              o.slug AS org_slug, o.plan, o.is_active AS org_active
+              o.slug AS org_slug, o.plan, o.type AS org_type,
+              o.is_active AS org_active,
+              o.subscription_status, o.trial_ends_at, o.trial_member_limit
        FROM users u
        JOIN organizations o ON o.id = u.organization_id
        WHERE u.id = $1`,
@@ -55,7 +57,9 @@ const authenticate = async (req, res, next) => {
       role: user.role,
       organizationId: user.organization_id,
       orgSlug: user.org_slug,
+      orgType: user.org_type,
       plan: user.plan,
+      subscriptionStatus: user.subscription_status,
     };
 
     next();

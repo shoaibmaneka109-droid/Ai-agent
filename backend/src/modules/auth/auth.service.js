@@ -3,6 +3,7 @@ const jwt = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const config = require('../../config');
 const { query, withTransaction } = require('../../config/database');
+const { getTrialEndDate, getTrialMemberLimit } = require('../../config/trial');
 
 const generateTokens = (userId, organizationId, role) => {
   const accessToken = jwt.sign(
@@ -50,13 +51,36 @@ const register = async ({ email, password, firstName, lastName, orgName, orgType
 
     const uniqueSlug = `${orgSlug}-${uuidv4().slice(0, 8)}`;
 
+    // Calculate trial window and member seat cap based on org type
+    const trialStartsAt = new Date();
+    const trialEndsAt = getTrialEndDate(orgType, trialStartsAt);
+    const trialMemberLimit = getTrialMemberLimit(orgType);
+
     const orgResult = await client.query(
-      `INSERT INTO organizations (name, slug, type, plan)
-       VALUES ($1, $2, $3, $4)
-       RETURNING id, name, slug, type, plan`,
-      [orgName, uniqueSlug, orgType, plan]
+      `INSERT INTO organizations
+         (name, slug, type, plan, subscription_status,
+          trial_starts_at, trial_ends_at, trial_member_limit)
+       VALUES ($1, $2, $3, $4, 'trialing', $5, $6, $7)
+       RETURNING id, name, slug, type, plan,
+                 subscription_status, trial_starts_at, trial_ends_at, trial_member_limit`,
+      [orgName, uniqueSlug, orgType, plan, trialStartsAt, trialEndsAt, trialMemberLimit]
     );
     const org = orgResult.rows[0];
+
+    // Record the trial_started event
+    await client.query(
+      `INSERT INTO subscription_events
+         (organization_id, event_type, from_status, to_status, metadata)
+       VALUES ($1, 'trial_started', NULL, 'trialing', $2)`,
+      [
+        org.id,
+        JSON.stringify({
+          orgType,
+          trialDays: orgType === 'agency' ? 30 : 15,
+          memberLimit: trialMemberLimit,
+        }),
+      ]
+    );
 
     // Hash password and create owner user
     const passwordHash = await bcrypt.hash(password, config.bcrypt.saltRounds);
@@ -85,7 +109,10 @@ const register = async ({ email, password, firstName, lastName, orgName, orgType
 const login = async ({ email, password }) => {
   const result = await query(
     `SELECT u.id, u.email, u.password_hash, u.first_name, u.last_name, u.role, u.is_active,
-            u.organization_id, o.name AS org_name, o.slug AS org_slug, o.plan, o.is_active AS org_active
+            u.organization_id,
+            o.name AS org_name, o.slug AS org_slug, o.plan, o.type AS org_type,
+            o.is_active AS org_active,
+            o.subscription_status, o.trial_ends_at, o.hibernated_at, o.trial_member_limit
      FROM users u
      JOIN organizations o ON o.id = u.organization_id
      WHERE u.email = $1`,
@@ -131,6 +158,11 @@ const login = async ({ email, password }) => {
     [user.id, await bcrypt.hash(tokens.refreshToken, 8), expiresAt]
   );
 
+  const { trialDaysRemaining } = require('../../config/trial');
+  const daysLeft = user.subscription_status === 'trialing'
+    ? trialDaysRemaining(user.trial_ends_at)
+    : null;
+
   return {
     user: {
       id: user.id,
@@ -143,7 +175,16 @@ const login = async ({ email, password }) => {
       id: user.organization_id,
       name: user.org_name,
       slug: user.org_slug,
+      type: user.org_type,
       plan: user.plan,
+      subscriptionStatus: user.subscription_status,
+      trialEndsAt: user.trial_ends_at,
+      hibernatedAt: user.hibernated_at,
+      trialMemberLimit: user.trial_member_limit,
+      daysRemaining: daysLeft,
+      hasFullAccess:
+        user.subscription_status === 'trialing' ||
+        user.subscription_status === 'active',
     },
     tokens,
   };

@@ -3,6 +3,7 @@ const { body, param } = require('express-validator');
 const apiKeysService = require('./apiKeys.service');
 const authenticate = require('../../shared/middleware/authenticate');
 const { authorize, tenantGuard } = require('../../shared/middleware/authorize');
+const { requireFullAccess } = require('../../shared/middleware/featureLock');
 const validate = require('../../shared/middleware/validate');
 const { sendSuccess, sendCreated } = require('../../shared/utils/apiResponse');
 
@@ -20,8 +21,10 @@ router.get('/', async (req, res, next) => {
 });
 
 // POST /organizations/:organizationId/api-keys
+// Creating/modifying API keys (Stripe/Airwallex) is locked during hibernation
 router.post(
   '/',
+  requireFullAccess,
   authorize(['owner', 'admin']),
   validate([
     body('provider').isIn(['stripe', 'airwallex', 'custom']),
@@ -62,6 +65,7 @@ router.get(
 // PUT /organizations/:organizationId/api-keys/:keyId/rotate
 router.put(
   '/:keyId/rotate',
+  requireFullAccess,
   authorize(['owner', 'admin']),
   validate([
     param('keyId').isUUID(),
