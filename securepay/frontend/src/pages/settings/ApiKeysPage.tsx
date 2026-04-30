@@ -1,165 +1,206 @@
 import { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { useForm } from 'react-hook-form';
-import { apiKeysApi, CreateApiKeyPayload } from '../../api/apiKeys.api';
-import { format } from 'date-fns';
-import { Plus, Trash2, Key, Eye, EyeOff } from 'lucide-react';
-import StatusBadge from '../../components/common/StatusBadge';
-import Modal from '../../components/common/Modal';
+import { apiKeysApi, type ApiKey, type CreateApiKeyPayload, type Provider } from '../../api/apiKeys.api';
+import { useAuthStore } from '../../store/auth.store';
+import { Plus, Key, ShieldCheck, AlertTriangle } from 'lucide-react';
 import EmptyState from '../../components/common/EmptyState';
 import Spinner from '../../components/common/Spinner';
+import AddKeyModal from '../../components/common/AddKeyModal';
+import ProviderCard from '../../components/common/ProviderCard';
+import clsx from 'clsx';
+
+// Group keys by provider for organised display
+function groupByProvider(keys: ApiKey[]): Record<string, ApiKey[]> {
+  return keys.reduce((acc: Record<string, ApiKey[]>, key) => {
+    const p = key.provider;
+    if (!acc[p]) acc[p] = [];
+    acc[p].push(key);
+    return acc;
+  }, {});
+}
+
+const PROVIDER_ORDER: Provider[] = ['stripe', 'airwallex', 'wise', 'custom'];
+
+const PROVIDER_LABELS: Record<string, string> = {
+  stripe: 'Stripe', airwallex: 'Airwallex', wise: 'Wise', custom: 'Custom',
+};
 
 export default function ApiKeysPage() {
-  const [createOpen, setCreateOpen] = useState(false);
-  const [showSecret, setShowSecret] = useState(false);
-  const [serverError, setServerError] = useState('');
+  const [addOpen, setAddOpen] = useState(false);
+  const [addError, setAddError] = useState('');
+  const [filterEnv, setFilterEnv] = useState<'all' | 'live' | 'sandbox'>('all');
+  const user = useAuthStore((s) => s.user);
   const qc = useQueryClient();
-  const { register, handleSubmit, reset, formState: { errors, isSubmitting } } = useForm<CreateApiKeyPayload>();
 
-  const { data: keys, isLoading } = useQuery({
+  const canManage = ['owner', 'admin'].includes(user?.role ?? '');
+
+  const { data: keys = [], isLoading } = useQuery({
     queryKey: ['api-keys'],
     queryFn: apiKeysApi.list,
   });
 
   const createMutation = useMutation({
-    mutationFn: apiKeysApi.create,
+    mutationFn: (payload: CreateApiKeyPayload) => apiKeysApi.create(payload),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['api-keys'] });
-      setCreateOpen(false);
-      reset();
+      setAddOpen(false);
+      setAddError('');
     },
-    onError: (err: any) => setServerError(err.response?.data?.message || 'Failed to save API key'),
+    onError: (err: any) => {
+      setAddError(err.response?.data?.message || 'Failed to save API key');
+    },
   });
 
-  const revokeMutation = useMutation({
-    mutationFn: apiKeysApi.revoke,
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['api-keys'] }),
-  });
+  // Stats
+  const activeKeys = keys.filter((k) => k.is_active);
+  const liveKeys   = activeKeys.filter((k) => k.environment === 'live');
+  const connected  = activeKeys.filter((k) => k.last_test_status === 'success');
+  const failed     = activeKeys.filter((k) => k.last_test_status === 'failure');
+
+  const filtered = keys.filter((k) => filterEnv === 'all' || k.environment === filterEnv);
+  const grouped  = groupByProvider(filtered);
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      {/* ── Header ───────────────────────────────────────────────────────── */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">API Keys</h1>
-          <p className="text-gray-500">Securely stored with AES-256-GCM encryption</p>
+          <h1 className="text-2xl font-bold text-gray-900">Payment Integrations</h1>
+          <p className="text-gray-500">
+            Self-service API key management — add your own Stripe, Airwallex, or Wise credentials.
+          </p>
         </div>
-        <button onClick={() => setCreateOpen(true)} className="btn-primary">
-          <Plus className="h-4 w-4" /> Add API Key
-        </button>
+        {canManage && (
+          <button onClick={() => { setAddOpen(true); setAddError(''); }} className="btn-primary">
+            <Plus className="h-4 w-4" />
+            Add Provider
+          </button>
+        )}
       </div>
 
+      {/* ── Stats bar ────────────────────────────────────────────────────── */}
+      {activeKeys.length > 0 && (
+        <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+          {[
+            { label: 'Active Keys',  value: activeKeys.length, color: 'text-gray-900' },
+            { label: 'Live Keys',    value: liveKeys.length,   color: 'text-emerald-600' },
+            { label: 'Verified',     value: connected.length,  color: 'text-brand-600' },
+            { label: 'Failed',       value: failed.length,     color: 'text-red-500' },
+          ].map(({ label, value, color }) => (
+            <div key={label} className="card py-3 text-center">
+              <p className={clsx('text-2xl font-bold', color)}>{value}</p>
+              <p className="text-xs text-gray-500">{label}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ── Security notice ───────────────────────────────────────────────── */}
+      <div className="flex items-start gap-3 rounded-xl border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700">
+        <ShieldCheck className="mt-0.5 h-5 w-5 flex-shrink-0 text-blue-500" />
+        <div>
+          <span className="font-semibold">End-to-end encryption:</span> All API keys and secrets are
+          encrypted with AES-256-GCM before being written to the database. Plaintext credentials are
+          never stored, logged, or returned to the browser. Only masked values (e.g.{' '}
+          <span className="font-mono">••••••abcd</span>) are displayed.
+        </div>
+      </div>
+
+      {/* ── Failed keys warning ───────────────────────────────────────────── */}
+      {failed.length > 0 && (
+        <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800">
+          <AlertTriangle className="mt-0.5 h-5 w-5 flex-shrink-0 text-amber-500" />
+          <div>
+            <span className="font-semibold">{failed.length} integration{failed.length > 1 ? 's' : ''} failing:</span>{' '}
+            {failed.map((k) => k.label).join(', ')}. Run a connection test to diagnose.
+          </div>
+        </div>
+      )}
+
+      {/* ── Filter tabs ───────────────────────────────────────────────────── */}
+      {keys.length > 0 && (
+        <div className="flex gap-1 rounded-xl bg-gray-100 p-1 w-fit">
+          {(['all', 'live', 'sandbox'] as const).map((env) => (
+            <button
+              key={env}
+              onClick={() => setFilterEnv(env)}
+              className={clsx(
+                'rounded-lg px-4 py-1.5 text-sm font-medium transition-all capitalize',
+                filterEnv === env
+                  ? 'bg-white text-gray-900 shadow-sm'
+                  : 'text-gray-500 hover:text-gray-700',
+              )}
+            >
+              {env === 'all' ? 'All' : env}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* ── Key list ─────────────────────────────────────────────────────── */}
       {isLoading ? (
-        <div className="flex h-48 items-center justify-center"><Spinner /></div>
-      ) : !keys?.length ? (
+        <div className="flex h-48 items-center justify-center">
+          <Spinner />
+        </div>
+      ) : keys.length === 0 ? (
         <EmptyState
           icon={Key}
-          title="No API keys yet"
-          description="Add your Stripe or Airwallex API keys to start processing payments."
-          action={<button onClick={() => setCreateOpen(true)} className="btn-primary">Add API Key</button>}
+          title="No integrations yet"
+          description="Add your Stripe, Airwallex, or Wise API keys to start processing payments. You control your own credentials."
+          action={
+            canManage ? (
+              <button onClick={() => setAddOpen(true)} className="btn-primary">
+                <Plus className="h-4 w-4" /> Add your first provider
+              </button>
+            ) : undefined
+          }
         />
+      ) : filtered.length === 0 ? (
+        <p className="py-8 text-center text-sm text-gray-400">
+          No {filterEnv} keys found.
+        </p>
       ) : (
-        <div className="space-y-3">
-          {keys.map((key: any) => (
-            <div key={key.id} className="card flex items-center justify-between gap-4">
-              <div className="flex items-center gap-4">
-                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-gray-100">
-                  <Key className="h-5 w-5 text-gray-500" />
-                </div>
-                <div>
-                  <p className="font-semibold text-gray-900">{key.label}</p>
-                  <p className="text-sm text-gray-500 capitalize">
-                    {key.provider} · {key.environment}
-                    {key.last_used_at && ` · Last used ${format(new Date(key.last_used_at), 'MMM d')}`}
-                  </p>
-                </div>
-              </div>
-              <div className="flex items-center gap-3">
-                <StatusBadge status={key.is_active ? 'active' : 'cancelled'} />
-                <StatusBadge status={key.environment} />
-                {key.is_active && (
-                  <button
-                    onClick={() => {
-                      if (confirm('Revoke this API key? This cannot be undone.')) revokeMutation.mutate(key.id);
-                    }}
-                    className="btn-outline p-2 text-red-500 hover:border-red-300 hover:text-red-600"
-                  >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                )}
+        <div className="space-y-6">
+          {PROVIDER_ORDER.filter((p) => grouped[p]?.length).map((provider) => (
+            <div key={provider}>
+              <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-gray-400">
+                {PROVIDER_LABELS[provider]}
+                <span className="rounded-full bg-gray-100 px-2 py-0.5 text-xs font-normal text-gray-500 normal-case">
+                  {grouped[provider].length}
+                </span>
+              </h2>
+              <div className="space-y-3">
+                {grouped[provider].map((key) => (
+                  <ProviderCard
+                    key={key.id}
+                    apiKey={key}
+                    canManage={canManage}
+                  />
+                ))}
               </div>
             </div>
           ))}
         </div>
       )}
 
-      {/* Create modal */}
-      <Modal isOpen={createOpen} onClose={() => { setCreateOpen(false); reset(); setServerError(''); }} title="Add API Key">
-        <form onSubmit={handleSubmit((d) => { setServerError(''); createMutation.mutate(d); })} className="space-y-4">
-          {serverError && <p className="rounded-lg bg-red-50 p-3 text-sm text-red-700">{serverError}</p>}
+      {/* ── Self-service info ─────────────────────────────────────────────── */}
+      {keys.length > 0 && (
+        <div className="rounded-xl border border-dashed border-gray-200 p-5 text-center text-sm text-gray-400">
+          <p>
+            <span className="font-medium text-gray-600">Self-service:</span> You own and manage your provider keys.
+            SecurePay never holds your credentials on behalf — each tenant controls their own integrations independently.
+          </p>
+        </div>
+      )}
 
-          <div>
-            <label className="label mb-1">Label</label>
-            <input {...register('label', { required: 'Required' })} className="input" placeholder="Production Stripe" />
-            {errors.label && <p className="mt-1 text-xs text-red-600">{errors.label.message}</p>}
-          </div>
-
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <label className="label mb-1">Provider</label>
-              <select {...register('provider', { required: true })} className="input">
-                <option value="stripe">Stripe</option>
-                <option value="airwallex">Airwallex</option>
-                <option value="custom">Custom</option>
-              </select>
-            </div>
-            <div>
-              <label className="label mb-1">Environment</label>
-              <select {...register('environment', { required: true })} className="input">
-                <option value="sandbox">Sandbox</option>
-                <option value="live">Live</option>
-              </select>
-            </div>
-          </div>
-
-          <div>
-            <label className="label mb-1">Secret Key</label>
-            <div className="relative">
-              <input
-                {...register('secretKey', { required: 'Required' })}
-                type={showSecret ? 'text' : 'password'}
-                className="input pr-10 font-mono text-xs"
-                placeholder="sk_live_..."
-              />
-              <button type="button" onClick={() => setShowSecret(!showSecret)}
-                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">
-                {showSecret ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-            {errors.secretKey && <p className="mt-1 text-xs text-red-600">{errors.secretKey.message}</p>}
-          </div>
-
-          <div>
-            <label className="label mb-1">Publishable Key (optional)</label>
-            <input {...register('publishableKey')} className="input font-mono text-xs" placeholder="pk_live_..." />
-          </div>
-
-          <div>
-            <label className="label mb-1">Webhook Secret (optional)</label>
-            <input {...register('webhookSecret')} type="password" className="input font-mono text-xs" placeholder="whsec_..." />
-          </div>
-
-          <div className="mt-1 rounded-lg bg-amber-50 p-3 text-xs text-amber-700 border border-amber-200">
-            Your secret key will be encrypted with AES-256-GCM before storage. It can never be retrieved in plaintext.
-          </div>
-
-          <div className="flex gap-3">
-            <button type="button" onClick={() => setCreateOpen(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={isSubmitting || createMutation.isPending} className="btn-primary flex-1">
-              {createMutation.isPending ? <Spinner size="sm" className="text-white" /> : 'Save Securely'}
-            </button>
-          </div>
-        </form>
-      </Modal>
+      {/* ── Add Provider Modal ────────────────────────────────────────────── */}
+      <AddKeyModal
+        isOpen={addOpen}
+        onClose={() => { setAddOpen(false); setAddError(''); }}
+        onSubmit={async (data) => { await createMutation.mutateAsync(data); }}
+        isSubmitting={createMutation.isPending}
+        error={addError}
+      />
     </div>
   );
 }

@@ -14,11 +14,12 @@ const router = Router();
 
 router.use(authenticate, resolveTenant, enforceTenantScope, attachAccessState, injectTrialHeaders);
 
-// Listing keys (masked): allowed in hibernation so user can see what they have
-router.get('/',          ctrl.list);
-router.get('/:keyId',    ctrl.show);
+// ── Read (allowed in hibernation — data read-only mode) ───────────────────────
+router.get('/',                    ctrl.list);
+router.get('/:keyId',              ctrl.show);
+router.get('/:keyId/test-log',     ctrl.getTestLog);
 
-// Storing / revoking keys requires active access
+// ── Write (require active subscription) ───────────────────────────────────────
 router.post(
   '/',
   authorize('owner', 'admin'),
@@ -38,8 +39,16 @@ router.patch(
 router.delete(
   '/:keyId',
   authorize('owner', 'admin'),
-  requireApiAccess,   // revocation is an API-level action
+  requireApiAccess,
   ctrl.revoke,
+);
+
+// ── Connection test (requires active access — can't test a locked account) ───
+router.post(
+  '/:keyId/test',
+  authorize('owner', 'admin'),
+  requireFullAccess,
+  ctrl.testConnection,
 );
 
 module.exports = router;

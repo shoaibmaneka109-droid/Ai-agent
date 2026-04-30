@@ -10,6 +10,7 @@ import PaymentDetailPage from './pages/payments/PaymentDetailPage';
 import ApiKeysPage from './pages/settings/ApiKeysPage';
 import TeamPage from './pages/settings/TeamPage';
 import ProfilePage from './pages/settings/ProfilePage';
+import SubscriptionPage from './pages/settings/SubscriptionPage';
 import NotFoundPage from './pages/NotFoundPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
@@ -35,9 +36,10 @@ export default function App() {
         <Route path="dashboard"          element={<DashboardPage />} />
         <Route path="payments"           element={<PaymentsPage />} />
         <Route path="payments/:id"       element={<PaymentDetailPage />} />
-        <Route path="settings/api-keys"  element={<ApiKeysPage />} />
-        <Route path="settings/team"      element={<TeamPage />} />
-        <Route path="settings/profile"   element={<ProfilePage />} />
+        <Route path="settings/api-keys"      element={<ApiKeysPage />} />
+        <Route path="settings/team"          element={<TeamPage />} />
+        <Route path="settings/profile"       element={<ProfilePage />} />
+        <Route path="settings/subscription"  element={<SubscriptionPage />} />
       </Route>
 
       <Route path="*" element={<NotFoundPage />} />

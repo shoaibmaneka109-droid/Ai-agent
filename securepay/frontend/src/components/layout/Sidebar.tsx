@@ -1,17 +1,18 @@
 import { NavLink } from 'react-router-dom';
 import {
-  LayoutDashboard, CreditCard, Key, Users, Settings, LogOut, ShieldCheck,
+  LayoutDashboard, CreditCard, Key, Users, Settings, LogOut, ShieldCheck, Zap,
 } from 'lucide-react';
 import { useAuthStore } from '../../store/auth.store';
 import { authApi } from '../../api/auth.api';
 import clsx from 'clsx';
 
 const navItems = [
-  { to: '/dashboard',         label: 'Dashboard',   icon: LayoutDashboard },
-  { to: '/payments',          label: 'Payments',     icon: CreditCard },
-  { to: '/settings/api-keys', label: 'API Keys',     icon: Key },
-  { to: '/settings/team',     label: 'Team',         icon: Users },
-  { to: '/settings/profile',  label: 'Profile',      icon: Settings },
+  { to: '/dashboard',              label: 'Dashboard',    icon: LayoutDashboard },
+  { to: '/payments',               label: 'Payments',     icon: CreditCard },
+  { to: '/settings/api-keys',      label: 'Integrations', icon: Key },
+  { to: '/settings/team',          label: 'Team',         icon: Users },
+  { to: '/settings/subscription',  label: 'Subscription', icon: Zap },
+  { to: '/settings/profile',       label: 'Profile',      icon: Settings },
 ];
 
 export default function Sidebar() {
