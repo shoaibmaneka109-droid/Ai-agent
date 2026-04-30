@@ -76,6 +76,18 @@ export const usersApi = {
   deactivate: (id) => api.delete(`/users/${id}`),
 };
 
+export const providerConnectionsApi = {
+  meta: () => api.get('/provider-connections/meta'),
+  list: () => api.get('/provider-connections'),
+  get: (id) => api.get(`/provider-connections/${id}`),
+  upsert: (data) => api.post('/provider-connections', data),
+  rotate: (id, data) => api.put(`/provider-connections/${id}/rotate`, data),
+  test: (id) => api.post(`/provider-connections/${id}/test`),
+  testLogs: (id) => api.get(`/provider-connections/${id}/test-logs`),
+  updateWebhookUrl: (id, url) => api.patch(`/provider-connections/${id}/webhook-url`, { webhookEndpointUrl: url }),
+  deactivate: (id) => api.delete(`/provider-connections/${id}`),
+};
+
 export const subscriptionApi = {
   getStatus: () => api.get('/subscription'),
   getEvents: () => api.get('/subscription/events'),

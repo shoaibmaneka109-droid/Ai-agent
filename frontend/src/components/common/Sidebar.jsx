@@ -9,6 +9,7 @@ const navItems = [
   { to: '/payments', icon: '💳', label: 'Payments' },
   { to: '/api-keys', icon: '🔑', label: 'API Keys' },
   { to: '/team', icon: '👥', label: 'Team', agencyOnly: true },
+  { to: '/settings/integrations', icon: '🔌', label: 'Integrations' },
   { to: '/settings', icon: '⚙️', label: 'Settings' },
   { to: '/settings/billing', icon: '💰', label: 'Billing' },
 ];

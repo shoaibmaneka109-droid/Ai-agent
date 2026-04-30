@@ -13,6 +13,7 @@ import ApiKeysPage from './components/organizations/ApiKeysPage';
 import TeamPage from './components/organizations/TeamPage';
 import SettingsPage from './components/organizations/SettingsPage';
 import BillingPage from './components/organizations/BillingPage';
+import ProviderSettingsPage from './components/providers/ProviderSettingsPage';
 
 export default function App() {
   return (
@@ -28,6 +29,7 @@ export default function App() {
             <Route path="/team" element={<TeamPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/settings/billing" element={<BillingPage />} />
+            <Route path="/settings/integrations" element={<ProviderSettingsPage />} />
           </Route>
           <Route path="*" element={<Navigate to="/dashboard" replace />} />
         </Routes>

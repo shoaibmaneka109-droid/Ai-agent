@@ -17,6 +17,7 @@ const apiKeyRoutes = require('./modules/api-keys/apiKeys.routes');
 const paymentRoutes = require('./modules/payments/payments.routes');
 const userRoutes = require('./modules/users/users.routes');
 const subscriptionRoutes = require('./modules/subscription/subscription.routes');
+const providerConnectionRoutes = require('./modules/provider-connections/providerConnections.routes');
 
 const app = express();
 
@@ -74,6 +75,7 @@ app.use('/api/v1/api-keys', apiKeyRoutes);
 app.use('/api/v1/payments', paymentRoutes);
 app.use('/api/v1/users', userRoutes);
 app.use('/api/v1/subscription', subscriptionRoutes);
+app.use('/api/v1/provider-connections', providerConnectionRoutes);
 
 // ── 404 & error handlers ───────────────────────────────────────────────────────
 app.use(notFound);
