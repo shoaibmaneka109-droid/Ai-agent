@@ -3,7 +3,7 @@ CREATE EXTENSION IF NOT EXISTS citext;
 
 CREATE TYPE account_type AS ENUM ('solo', 'agency');
 CREATE TYPE organization_role AS ENUM ('owner', 'admin', 'member');
-CREATE TYPE payment_provider AS ENUM ('stripe', 'airwallex');
+CREATE TYPE payment_provider AS ENUM ('stripe', 'airwallex', 'wise');
 CREATE TYPE api_key_environment AS ENUM ('test', 'live');
 
 CREATE TABLE tenants (

@@ -18,7 +18,7 @@ SecurePay is a multi-tenant SaaS starter for securely storing and managing payme
 ```text
 apps/
   api/                 Express API, tenant middleware, repositories, encryption
-  web/                 React onboarding shell for Solo and Agency users
+  web/                 React onboarding and admin provider settings shell
 database/
   migrations/          PostgreSQL schema migrations
 packages/
@@ -36,10 +36,12 @@ npm run dev:api
 npm run dev:web
 ```
 
-Apply the initial schema with:
+Apply migrations in order with:
 
 ```bash
 psql "$DATABASE_URL" -f database/migrations/001_initial_securepay_schema.sql
+psql "$DATABASE_URL" -f database/migrations/002_auth_trials_and_hibernation.sql
+psql "$DATABASE_URL" -f database/migrations/003_provider_integrations.sql
 ```
 
 `ENCRYPTION_KEY_BASE64` must be exactly 32 bytes when decoded. Generate one with:
@@ -49,3 +51,10 @@ openssl rand -base64 32
 ```
 
 `JWT_SECRET` should be a high-entropy signing secret.
+
+## Self-service provider settings
+
+Admins can manage their own card issuing integrations from the React settings page. The backend
+exposes `/v1/provider-integrations` for encrypted Stripe, Airwallex, and Wise API keys plus optional
+webhook secrets, and `/v1/provider-integrations/:integrationId/test` to verify saved credentials
+against each provider API.

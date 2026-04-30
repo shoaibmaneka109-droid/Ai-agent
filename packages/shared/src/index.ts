@@ -8,7 +8,7 @@ export type OrganizationRole = (typeof ORGANIZATION_ROLES)[number];
 export const SUBSCRIPTION_STATUSES = ["trialing", "active", "past_due", "expired", "canceled"] as const;
 export type SubscriptionStatus = (typeof SUBSCRIPTION_STATUSES)[number];
 
-export const PAYMENT_PROVIDERS = ["stripe", "airwallex"] as const;
+export const PAYMENT_PROVIDERS = ["stripe", "airwallex", "wise"] as const;
 export type PaymentProvider = (typeof PAYMENT_PROVIDERS)[number];
 export type IntegrationProvider = PaymentProvider;
 
@@ -68,4 +68,20 @@ export interface ApiKeySummary {
   keyPreview: string;
   createdAt: string;
   lastRotatedAt: string | null;
+}
+
+export type ProviderConnectionStatus = "untested" | "success" | "failed";
+
+export interface ProviderIntegrationSummary {
+  id: string;
+  provider: PaymentProvider;
+  environment: ApiKeyEnvironment;
+  apiKeyPreview: string;
+  webhookSecretPreview: string | null;
+  cardIssuingEnabled: boolean;
+  lastConnectionStatus: ProviderConnectionStatus;
+  lastConnectionMessage: string | null;
+  lastConnectionCheckedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
 }

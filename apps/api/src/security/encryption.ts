@@ -75,3 +75,16 @@ export const encryptSecret = (plaintext: string): EncryptedSecret =>
 
 export const decryptSecret = (encrypted: EncryptedSecret): string =>
   encryptionService.decrypt(encrypted);
+
+export const encryptedSecretFromDatabase = (params: {
+  ciphertext: string;
+  iv: string;
+  authTag: string;
+  keyVersion: number;
+}): EncryptedSecret => ({
+  algorithm: "aes-256-gcm",
+  ciphertext: params.ciphertext,
+  iv: params.iv,
+  authTag: params.authTag,
+  keyVersion: params.keyVersion
+});
