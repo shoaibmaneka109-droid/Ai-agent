@@ -158,8 +158,10 @@ r.get(
         label: string | null;
         card_frozen_at: Date | null;
         full_time_freeze: boolean;
+        is_auto_freeze_enabled: boolean;
       }>(
-        `SELECT id, external_ref, last4, label, card_frozen_at, full_time_freeze FROM organization_virtual_cards
+        `SELECT id, external_ref, last4, label, card_frozen_at, full_time_freeze, is_auto_freeze_enabled
+         FROM organization_virtual_cards
          WHERE organization_id = $1 ORDER BY created_at`,
         [req.tenantId]
       );
@@ -171,6 +173,7 @@ r.get(
           label: v.label,
           frozen: Boolean(v.card_frozen_at),
           fullTimeFreeze: v.full_time_freeze,
+          isAutoFreezeEnabled: v.is_auto_freeze_enabled,
         })),
       });
     } catch (e) {
@@ -301,6 +304,44 @@ r.patch(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Failed to update master freeze" });
+    }
+  }
+);
+
+/** Auto-freeze after successful payment (webhook): updates is_auto_freeze_enabled. */
+r.patch(
+  "/virtual-cards/:cardId/auto-freeze",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireViewCardsAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const cardId = req.params.cardId;
+    if (!cardId) {
+      res.status(400).json({ error: "cardId required" });
+      return;
+    }
+    const body = req.body as { isAutoFreezeEnabled?: boolean };
+    if (typeof body.isAutoFreezeEnabled !== "boolean") {
+      res.status(400).json({ error: "isAutoFreezeEnabled (boolean) required" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      const { rowCount } = await pool.query(
+        `UPDATE organization_virtual_cards SET is_auto_freeze_enabled = $3
+         WHERE id = $1::uuid AND organization_id = $2`,
+        [cardId, req.tenantId, body.isAutoFreezeEnabled]
+      );
+      if (rowCount === 0) {
+        res.status(404).json({ error: "Virtual card not found in this organization" });
+        return;
+      }
+      res.json({ isAutoFreezeEnabled: body.isAutoFreezeEnabled });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update auto-freeze flag" });
     }
   }
 );

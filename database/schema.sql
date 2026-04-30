@@ -66,6 +66,7 @@ CREATE TABLE organization_virtual_cards (
   label            TEXT,
   card_frozen_at   TIMESTAMPTZ,
   full_time_freeze BOOLEAN NOT NULL DEFAULT false,
+  is_auto_freeze_enabled BOOLEAN NOT NULL DEFAULT false,
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, external_ref)
 );

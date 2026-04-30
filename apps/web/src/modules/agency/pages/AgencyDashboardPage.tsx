@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiJson, getStoredOrganizationId } from "../../../shared/lib/api";
+import { subscribeOrgCardEvents } from "../../../shared/lib/cardEventsSocket";
 
 interface VirtualCard {
   id: string;
@@ -9,6 +10,7 @@ interface VirtualCard {
   label: string | null;
   frozen?: boolean;
   fullTimeFreeze?: boolean;
+  isAutoFreezeEnabled?: boolean;
 }
 
 type OrgRole = "owner" | "admin" | "sub_admin" | "member";
@@ -59,6 +61,7 @@ export function AgencyDashboardPage() {
   const [wlHost, setWlHost] = useState("");
   const [wlLabel, setWlLabel] = useState("");
   const [emergencyLockdown, setEmergencyLockdown] = useState(false);
+  const [cardFrozenToast, setCardFrozenToast] = useState<string | null>(null);
   const [mgrEmail, setMgrEmail] = useState("");
   const [mgrPassword, setMgrPassword] = useState("");
   const [mgrA, setMgrA] = useState(true);
@@ -155,6 +158,18 @@ export function AgencyDashboardPage() {
   useEffect(() => {
     void loadDashboard();
   }, [loadDashboard]);
+
+  useEffect(() => {
+    if (!canDashboard || !orgId) return;
+    const unsub = subscribeOrgCardEvents((p) => {
+      if (p.organizationId !== orgId) return;
+      setCardFrozenToast(
+        `Card …${p.last4} frozen via webhook (${p.provider}). Session freeze applied — refresh list if needed.`
+      );
+      void loadDashboard();
+    });
+    return unsub;
+  }, [canDashboard, orgId, loadDashboard]);
 
   useEffect(() => {
     if (cards.length > 0 && !empCardId) {
@@ -312,6 +327,24 @@ export function AgencyDashboardPage() {
     }
   }
 
+  async function setAutoFreeze(cardId: string, isAutoFreezeEnabled: boolean) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await apiJson(`/api/v1/organizations/${orgId}/virtual-cards/${cardId}/auto-freeze`, {
+        method: "PATCH",
+        body: JSON.stringify({ isAutoFreezeEnabled }),
+      });
+      await loadDashboard();
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Auto-freeze update failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function setPaymentsAuthorization(userId: string, untilIso: string | null) {
     if (!orgId) return;
     setBusy(true);
@@ -464,6 +497,14 @@ export function AgencyDashboardPage() {
         )}
       </p>
       {error ? <p style={{ color: "#b91c1c" }}>{error}</p> : null}
+      {cardFrozenToast ? (
+        <p style={{ background: "#fef3c7", border: "1px solid #fcd34d", padding: "10px 12px", borderRadius: 6, fontSize: 14 }}>
+          {cardFrozenToast}{" "}
+          <button type="button" onClick={() => setCardFrozenToast(null)} style={{ marginLeft: 8 }}>
+            Dismiss
+          </button>
+        </p>
+      ) : null}
 
       {isMainAdmin ? (
         <section
@@ -581,6 +622,12 @@ export function AgencyDashboardPage() {
           <p style={{ fontSize: 13, color: "#64748b", marginBottom: 0 }}>
             Install from <code>extensions/securepay-checkout</code> in this repo (load unpacked). Set API URL + token
             in the extension popup.
+            <br />
+            <strong>Payment webhooks</strong> (Stripe / Airwallex):{" "}
+            <code>POST /api/webhooks/payments?organization_id=&lt;ORG_UUID&gt;</code> — Stripe sends{" "}
+            <code>Stripe-Signature</code>; Airwallex sends signed JSON. On <code>payment_intent.succeeded</code>, set
+            PaymentIntent metadata <code>organization_virtual_card_id</code> to the virtual card UUID. Enable{" "}
+            <strong>Auto-freeze after payment</strong> per card below.
           </p>
         </section>
       ) : null}
@@ -627,6 +674,9 @@ export function AgencyDashboardPage() {
                 {c.fullTimeFreeze ? (
                   <span style={{ color: "#7c2d12", marginLeft: 8 }}>Master freeze</span>
                 ) : null}
+                {c.isAutoFreezeEnabled ? (
+                  <span style={{ color: "#0369a1", marginLeft: 8 }}>Auto-freeze on pay</span>
+                ) : null}
                 {permB ? (
                   <span style={{ marginLeft: 12, display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
                     <button type="button" disabled={busy} onClick={() => void setCardFrozen(c.id, !c.frozen)}>
@@ -639,7 +689,16 @@ export function AgencyDashboardPage() {
                         disabled={busy}
                         onChange={(e) => void setFullTimeFreeze(c.id, e.target.checked)}
                       />
-                      Full-time freeze (extension + PAN)
+                      Master freeze (full-time)
+                    </label>
+                    <label style={{ fontSize: 13, display: "inline-flex", alignItems: "center", gap: 6 }}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(c.isAutoFreezeEnabled)}
+                        disabled={busy}
+                        onChange={(e) => void setAutoFreeze(c.id, e.target.checked)}
+                      />
+                      Auto-freeze after successful payment
                     </label>
                   </span>
                 ) : null}

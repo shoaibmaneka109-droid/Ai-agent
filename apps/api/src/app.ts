@@ -9,9 +9,11 @@ import { agencyDashboardRoutes } from "./modules/agency/agencyDashboard.routes.j
 import { virtualCardRoutes } from "./modules/cards/virtualCard.routes.js";
 import { authorizedPaymentRoutes } from "./modules/payments/authorizedPayment.routes.js";
 import { extensionRoutes } from "./modules/extension/extension.routes.js";
+import { mountPaymentWebhooks } from "./modules/webhooks/paymentWebhooks.routes.js";
 
 export function createApp() {
   const app = express();
+  mountPaymentWebhooks(app);
   app.use(express.json());
   app.use("/api/v1/auth", authRoutes);
   app.use("/api/v1", integrationRoutes);

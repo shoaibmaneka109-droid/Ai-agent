@@ -37,4 +37,6 @@ export const env = {
   jwtExpiresInDays: Number(process.env.JWT_EXPIRES_IN_DAYS ?? 7),
   /** When behind a reverse proxy, set TRUST_PROXY=1 and configure Express `trust proxy` so X-Forwarded-For is used for VPS IP checks. */
   trustProxy: process.env.TRUST_PROXY === "1" || process.env.TRUST_PROXY === "true",
+  /** Comma-separated origins for Socket.IO admin dashboard (default: http://localhost:5173) */
+  socketCorsOrigin: process.env.SOCKET_CORS_ORIGIN ?? "http://localhost:5173",
 };
