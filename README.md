@@ -26,7 +26,17 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 ## Agency employees during trial
 
 - While the org is on **agency trial** (trial active and not on paid plan), at most **9** users with role **`member`** may exist (`AGENCY_TRIAL_MAX_EMPLOYEES`).
-- **`POST /api/v1/organizations/:orgId/members/employees`** — admin/owner only; headers: **`Authorization: Bearer <token>`**, **`X-Organization-Id: <same org uuid>`**.
+- **`POST /api/v1/organizations/:orgId/members/employees`** — admin/owner; body **`email`**, **`password`**, **`virtualCardId`** (UUID in org), **`allowedVpsIp`** (IPv4/IPv6). Headers: **`Authorization`**, **`X-Organization-Id`**.
+
+## Agency dashboard & VPS IP for card access
+
+- **`organization_virtual_cards`** — per-org registry of issued cards (`external_ref`, `last4`, `label`).
+- **`organization_members.virtual_card_id`** + **`allowed_vps_ip`** — each employee must be mapped to a card and a **mandatory VPS IP**.
+- **Admin UI**: **`/agency/dashboard`** — register cards, add employees, edit mappings.
+- **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** compares **`getRequestClientIp(req)`** to the DB IP; mismatch → **403** `VPS_IP_MISMATCH`. Owners/admins skip IP check (they do not receive simulated full PAN).
+- **Production**: set **`TRUST_PROXY=1`** and place Express behind a proxy that sets **`X-Forwarded-For`** so the client IP reflects the employee’s VPS. See `apps/api/src/lib/requestIp.ts` and `apps/api/src/index.ts` (`app.set('trust proxy', 1)`).
+
+Upgrade: if your DB predates these columns, run **`database/migrations/003_employee_vps_virtual_cards.sql`**.
 
 ## Admin integrations (self-service)
 

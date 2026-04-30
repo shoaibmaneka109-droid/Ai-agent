@@ -45,10 +45,31 @@ CREATE TABLE organization_members (
   role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'member')),
   invited_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   joined_at       TIMESTAMPTZ,
+  virtual_card_id UUID,
+  allowed_vps_ip  INET,
   PRIMARY KEY (organization_id, user_id)
 );
 
 CREATE INDEX idx_organization_members_user ON organization_members (user_id);
+
+-- Agency: virtual cards mapped to employees; card details only from allowed VPS IP
+CREATE TABLE organization_virtual_cards (
+  id               UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id  UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  external_ref     TEXT NOT NULL,
+  last4            CHAR(4) NOT NULL,
+  label            TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, external_ref)
+);
+
+CREATE INDEX idx_org_virtual_cards_org ON organization_virtual_cards (organization_id);
+
+ALTER TABLE organization_members
+  ADD CONSTRAINT organization_members_virtual_card_id_fkey
+  FOREIGN KEY (virtual_card_id) REFERENCES organization_virtual_cards (id) ON DELETE SET NULL;
+
+CREATE INDEX idx_org_members_virtual_card ON organization_members (virtual_card_id);
 
 -- Encrypted at rest: ciphertext + IV + auth tag (AES-256-GCM); never store plaintext keys
 CREATE TABLE organization_credentials (

@@ -33,9 +33,18 @@ r.post(
       res.status(403).json({ error: "Employees can only be added to agency organizations" });
       return;
     }
-    const body = req.body as { email?: string; password?: string };
+    const body = req.body as {
+      email?: string;
+      password?: string;
+      virtualCardId?: string;
+      allowedVpsIp?: string;
+    };
     if (!body.email || !body.password) {
       res.status(400).json({ error: "email and password required" });
+      return;
+    }
+    if (!body.virtualCardId?.trim() || !body.allowedVpsIp?.trim()) {
+      res.status(400).json({ error: "virtualCardId and allowedVpsIp are required for each employee" });
       return;
     }
     try {
@@ -57,6 +66,15 @@ r.post(
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
+      const cardCheck = await client.query<{ id: string }>(
+        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2`,
+        [body.virtualCardId.trim(), orgId]
+      );
+      if (!cardCheck.rows[0]) {
+        await client.query("ROLLBACK");
+        res.status(400).json({ error: "virtualCardId not found in this organization" });
+        return;
+      }
       const userRes = await client.query<{ id: string }>(
         `INSERT INTO users (email, password_hash, user_type, default_org_id)
          VALUES ($1, $2, 'agency', $3)
@@ -65,9 +83,9 @@ r.post(
       );
       const newUserId = userRes.rows[0]!.id;
       await client.query(
-        `INSERT INTO organization_members (organization_id, user_id, role, joined_at)
-         VALUES ($1, $2, 'member', now())`,
-        [orgId, newUserId]
+        `INSERT INTO organization_members (organization_id, user_id, role, joined_at, virtual_card_id, allowed_vps_ip)
+         VALUES ($1, $2, 'member', now(), $3::uuid, $4::inet)`,
+        [orgId, newUserId, body.virtualCardId.trim(), body.allowedVpsIp.trim()]
       );
       await client.query("COMMIT");
       const freshBilling = await getOrganizationBillingState(orgId);
