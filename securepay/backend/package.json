@@ -8,7 +8,12 @@
     "dev": "nodemon src/server.js",
     "migrate": "node migrations/run.js",
     "migrate:rollback": "node migrations/rollback.js",
-    "test": "jest --runInBand --detectOpenHandles"
+    "test": "jest --runInBand --detectOpenHandles",
+    "test:unit": "jest tests/trial.service.test.js --runInBand"
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": ["**/tests/**/*.test.js"]
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",

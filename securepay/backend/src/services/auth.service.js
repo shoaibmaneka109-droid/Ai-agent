@@ -1,10 +1,10 @@
 const bcrypt = require('bcryptjs');
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
-const { v4: uuidv4 } = require('uuid');
 const { query, getClient } = require('../config/database');
 const jwtConfig = require('../config/jwt');
 const logger = require('../utils/logger');
+const { initTrial, computeAccess } = require('./trial.service');
 
 const SALT_ROUNDS = 12;
 
@@ -57,16 +57,33 @@ async function register({ tenantName, tenantSlug, plan, email, password, firstNa
     );
     const user = userResult.rows[0];
 
+    // ── Initialize trial subscription (inside same transaction) ──────────────
+    // Solo  → 15-day trial
+    // Agency → 30-day trial, employee cap = 9
+    const subscription = await initTrial(client, tenantId, plan);
+
     await client.query('COMMIT');
-    logger.info(`New tenant registered: ${tenantSlug} (plan: ${plan})`);
+    logger.info(`New tenant registered: ${tenantSlug} (plan: ${plan}, trial ends: ${subscription.trial_end})`);
 
     const accessToken = generateAccessToken(user);
     const refreshToken = generateRefreshToken();
     const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-
     await query('UPDATE users SET refresh_token_hash = $1 WHERE id = $2', [refreshTokenHash, user.id]);
 
-    return { accessToken, refreshToken, user: sanitizeUser(user), tenantId };
+    const access = computeAccess(subscription);
+
+    return {
+      accessToken,
+      refreshToken,
+      user: sanitizeUser(user),
+      tenantId,
+      subscription: {
+        status: subscription.status,
+        trialEnd: subscription.trial_end,
+        trialDays: subscription.trial_days,
+      },
+      access,
+    };
   } catch (err) {
     await client.query('ROLLBACK');
     throw err;
@@ -76,48 +93,102 @@ async function register({ tenantName, tenantSlug, plan, email, password, firstNa
 }
 
 async function login({ email, password, tenantSlug }) {
+  // Join subscription so we can return access state on login without a 2nd round-trip
   const { rows } = await query(
     `SELECT u.id, u.tenant_id, u.role, u.email, u.password_hash, u.status,
-            u.first_name, u.last_name, u.failed_login_count, u.locked_until
+            u.first_name, u.last_name, u.failed_login_count, u.locked_until,
+            t.plan, t.status AS tenant_status,
+            s.id AS sub_id, s.status AS sub_status, s.trial_end, s.trial_days,
+            s.trial_expired_at, s.hibernation_started_at,
+            s.grace_period_hours, s.api_access, s.autofill_access, s.data_read_only,
+            s.current_period_end
      FROM users u
      JOIN tenants t ON t.id = u.tenant_id
+     LEFT JOIN subscriptions s ON s.tenant_id = t.id
      WHERE u.email = $1 AND t.slug = $2`,
     [email, tenantSlug],
   );
 
   if (!rows.length) throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
 
-  const user = rows[0];
+  const row = rows[0];
 
-  if (user.status !== 'active') throw Object.assign(new Error('Account is not active'), { statusCode: 403 });
+  // User-level checks
+  if (row.status !== 'active') throw Object.assign(new Error('Account is not active'), { statusCode: 403 });
+  if (row.tenant_status === 'suspended') throw Object.assign(new Error('This workspace has been suspended'), { statusCode: 403 });
+  if (row.tenant_status === 'cancelled') throw Object.assign(new Error('This workspace has been closed'), { statusCode: 403 });
 
-  if (user.locked_until && new Date(user.locked_until) > new Date()) {
+  if (row.locked_until && new Date(row.locked_until) > new Date()) {
     throw Object.assign(new Error('Account is temporarily locked. Please try again later.'), { statusCode: 423 });
   }
 
-  const passwordMatch = await bcrypt.compare(password, user.password_hash);
+  const passwordMatch = await bcrypt.compare(password, row.password_hash);
   if (!passwordMatch) {
-    const failCount = user.failed_login_count + 1;
+    const failCount = row.failed_login_count + 1;
     const lockUntil = failCount >= 5 ? new Date(Date.now() + 15 * 60 * 1000) : null;
     await query(
       'UPDATE users SET failed_login_count = $1, locked_until = $2 WHERE id = $3',
-      [failCount, lockUntil, user.id],
+      [failCount, lockUntil, row.id],
     );
     throw Object.assign(new Error('Invalid credentials'), { statusCode: 401 });
   }
 
-  // Reset failed attempts and update last login
+  // Reset failed attempts and record last login
   await query(
     'UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = NOW() WHERE id = $1',
-    [user.id],
+    [row.id],
   );
+
+  // Compute subscription access state (hibernated users are still allowed to log in)
+  const subRow = row.sub_id
+    ? {
+        status: row.sub_status,
+        trial_end: row.trial_end,
+        grace_period_hours: row.grace_period_hours ?? 24,
+        api_access: row.api_access,
+        autofill_access: row.autofill_access,
+        data_read_only: row.data_read_only,
+      }
+    : null;
+  const access = computeAccess(subRow);
+
+  const user = {
+    id: row.id,
+    tenant_id: row.tenant_id,
+    role: row.role,
+    email: row.email,
+    first_name: row.first_name,
+    last_name: row.last_name,
+  };
 
   const accessToken = generateAccessToken(user);
   const refreshToken = generateRefreshToken();
   const refreshTokenHash = await bcrypt.hash(refreshToken, 10);
-  await query('UPDATE users SET refresh_token_hash = $1 WHERE id = $2', [refreshTokenHash, user.id]);
+  await query('UPDATE users SET refresh_token_hash = $1 WHERE id = $2', [refreshTokenHash, row.id]);
 
-  return { accessToken, refreshToken, user: sanitizeUser(user) };
+  // Days remaining in trial (null if not trialing)
+  let trialDaysRemaining = null;
+  if (row.sub_status === 'trialing' && row.trial_end) {
+    trialDaysRemaining = Math.max(0, Math.ceil((new Date(row.trial_end) - new Date()) / 86400000));
+  }
+
+  return {
+    accessToken,
+    refreshToken,
+    user: sanitizeUser(user),
+    subscription: row.sub_id
+      ? {
+          status: row.sub_status,
+          trialEnd: row.trial_end,
+          trialDays: row.trial_days,
+          trialDaysRemaining,
+          trialExpiredAt: row.trial_expired_at,
+          hibernationStartedAt: row.hibernation_started_at,
+          currentPeriodEnd: row.current_period_end,
+        }
+      : null,
+    access,
+  };
 }
 
 async function refreshTokens(userId, refreshToken) {

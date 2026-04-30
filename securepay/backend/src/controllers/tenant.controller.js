@@ -1,5 +1,5 @@
 const tenantService = require('../services/tenant.service');
-const { success, error } = require('../utils/apiResponse');
+const { success, error, created } = require('../utils/apiResponse');
 
 async function getProfile(req, res, next) {
   try {
@@ -46,4 +46,22 @@ async function removeMember(req, res, next) {
   }
 }
 
-module.exports = { getProfile, updateProfile, getTeam, updateMemberRole, removeMember };
+async function inviteMember(req, res, next) {
+  try {
+    const result = await tenantService.inviteMember(
+      req.tenant.id,
+      req.user.id,
+      req.body,
+    );
+    // In production, tempPassword would be emailed, not returned in the response
+    return created(res, {
+      user: result.user,
+      // Only include tempPassword in non-production for testing
+      ...(process.env.NODE_ENV !== 'production' && { tempPassword: result.tempPassword }),
+    }, 'Team member invited successfully');
+  } catch (err) {
+    next(err);
+  }
+}
+
+module.exports = { getProfile, updateProfile, getTeam, updateMemberRole, removeMember, inviteMember };
