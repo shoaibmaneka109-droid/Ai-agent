@@ -87,6 +87,15 @@ Subscription lifecycle and trial enforcement:
 - Agency trial employee cap: 9 employees plus the initial admin/owner,
 - hibernation state calculation after trial or subscription expiry.
 
+### `src/modules/integrations`
+
+Self-service provider integration vault:
+
+- tenant admins and owners store their own Stripe, Airwallex, and Wise credentials,
+- secret values are encrypted before persistence,
+- webhook secrets are stored alongside provider API credentials,
+- connection tests validate saved credentials against lightweight provider endpoints.
+
 ## Encryption approach
 
 Sensitive API keys such as Stripe and Airwallex credentials are encrypted using AES-256-GCM.
@@ -112,7 +121,8 @@ AES-GCM was chosen over plain AES-CBC because authenticated encryption prevents 
 
 ### Payment provider tables
 
-- `payment_provider_accounts`: provider credentials keyed by tenant + provider + account label
+- `payment_provider_accounts`: legacy provider secret example keyed by tenant + provider + account label
+- `tenant_integration_credentials`: self-service admin-managed provider and webhook secrets per tenant
 
 ### Security and compliance support
 
@@ -131,6 +141,11 @@ AES-GCM was chosen over plain AES-CBC because authenticated encryption prevents 
    - encrypt values,
    - persist only ciphertext payloads,
    - log the change in `audit_logs`.
+7. When testing an integration:
+   - load the tenant-owned encrypted credentials,
+   - decrypt only in backend memory,
+   - call a lightweight provider validation endpoint,
+   - persist the connection-test result without exposing secret values.
 
 ## Trial and hibernation rules
 
@@ -150,7 +165,8 @@ The React shell is intentionally minimal and oriented around future expansion:
 
 - overview of tenant-aware architecture,
 - cards for Solo and Agency flows,
-- reminder that secrets stay encrypted at rest.
+- reminder that secrets stay encrypted at rest,
+- admin settings forms for self-service provider onboarding and connection tests.
 
 ## Recommended next steps
 

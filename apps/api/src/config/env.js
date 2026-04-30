@@ -24,6 +24,7 @@ const env = {
   appUrl: process.env.WEB_ORIGIN || "http://localhost:5173",
   databaseUrl: process.env.DATABASE_URL || "",
   encryptionMasterKey: process.env.ENCRYPTION_MASTER_KEY || "",
+  connectionTestTimeoutMs: Number(process.env.CONNECTION_TEST_TIMEOUT_MS || 8000),
   jwtIssuer: process.env.JWT_ISSUER || "securepay-api",
   jwtAudience: process.env.JWT_AUDIENCE || "securepay-app",
   jwtAccessSecret: process.env.JWT_ACCESS_SECRET || "dev-access-secret",

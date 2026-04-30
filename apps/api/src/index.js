@@ -7,6 +7,7 @@ const { env, assertEnvironment } = require("./config/env");
 const { HttpError, isHttpError } = require("./shared/http/errors");
 const { requestContext } = require("./shared/middleware/requestContext");
 const { authRouter } = require("./modules/auth/auth.routes");
+const { integrationsRouter } = require("./modules/integrations/integrations.routes");
 const { healthRouter } = require("./modules/health/health.routes");
 const { tenantsRouter } = require("./modules/tenants/tenants.routes");
 const { secretsRouter } = require("./modules/secrets/secrets.routes");
@@ -34,6 +35,7 @@ app.get("/", (_req, res) => {
 
 app.use("/auth", authRouter);
 app.use("/health", healthRouter);
+app.use("/integrations", integrationsRouter);
 app.use("/tenants", tenantsRouter);
 app.use("/secrets", secretsRouter);
 app.use("/autofill", autofillRouter);

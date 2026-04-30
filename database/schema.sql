@@ -11,7 +11,7 @@ BEGIN
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'provider_name') THEN
-    CREATE TYPE provider_name AS ENUM ('stripe', 'airwallex');
+    CREATE TYPE provider_name AS ENUM ('stripe', 'airwallex', 'wise');
   END IF;
 
   IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'subscription_status') THEN
@@ -79,6 +79,32 @@ CREATE TABLE IF NOT EXISTS payment_provider_accounts (
   UNIQUE (tenant_id, provider, account_label)
 );
 
+CREATE TABLE IF NOT EXISTS tenant_integration_credentials (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
+  provider provider_name NOT NULL,
+  secret_type TEXT NOT NULL,
+  label TEXT NOT NULL,
+  environment TEXT NOT NULL DEFAULT 'sandbox',
+  public_value TEXT,
+  masked_value TEXT,
+  algorithm TEXT NOT NULL DEFAULT 'aes-256-gcm',
+  key_fingerprint TEXT NOT NULL,
+  encrypted_value BYTEA NOT NULL,
+  iv BYTEA NOT NULL,
+  auth_tag BYTEA NOT NULL,
+  key_version TEXT NOT NULL DEFAULT 'v1',
+  last_test_status TEXT NOT NULL DEFAULT 'not_tested',
+  last_tested_at TIMESTAMPTZ,
+  last_error_message TEXT,
+  created_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_by_user_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (tenant_id, provider, secret_type, label)
+);
+
 CREATE TABLE IF NOT EXISTS tenant_subscriptions (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   tenant_id UUID NOT NULL REFERENCES tenants(id) ON DELETE CASCADE,
@@ -129,6 +155,9 @@ CREATE INDEX IF NOT EXISTS idx_tenant_memberships_user_id
 CREATE INDEX IF NOT EXISTS idx_provider_accounts_tenant_id
   ON payment_provider_accounts (tenant_id);
 
+CREATE INDEX IF NOT EXISTS idx_tenant_integration_credentials_tenant_id
+  ON tenant_integration_credentials (tenant_id);
+
 CREATE INDEX IF NOT EXISTS idx_tenant_subscriptions_tenant_id_created_at
   ON tenant_subscriptions (tenant_id, created_at DESC);
 
@@ -164,6 +193,12 @@ BEFORE UPDATE ON payment_provider_accounts
 FOR EACH ROW
 EXECUTE FUNCTION set_updated_at();
 
+DROP TRIGGER IF EXISTS tenant_integration_credentials_set_updated_at ON tenant_integration_credentials;
+CREATE TRIGGER tenant_integration_credentials_set_updated_at
+BEFORE UPDATE ON tenant_integration_credentials
+FOR EACH ROW
+EXECUTE FUNCTION set_updated_at();
+
 DROP TRIGGER IF EXISTS tenant_subscriptions_set_updated_at ON tenant_subscriptions;
 CREATE TRIGGER tenant_subscriptions_set_updated_at
 BEFORE UPDATE ON tenant_subscriptions
@@ -173,6 +208,7 @@ EXECUTE FUNCTION set_updated_at();
 ALTER TABLE tenants ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_memberships ENABLE ROW LEVEL SECURITY;
 ALTER TABLE payment_provider_accounts ENABLE ROW LEVEL SECURITY;
+ALTER TABLE tenant_integration_credentials ENABLE ROW LEVEL SECURITY;
 ALTER TABLE tenant_subscriptions ENABLE ROW LEVEL SECURITY;
 ALTER TABLE audit_logs ENABLE ROW LEVEL SECURITY;
 
@@ -199,6 +235,11 @@ CREATE POLICY memberships_isolation_policy
 DROP POLICY IF EXISTS provider_accounts_isolation_policy ON payment_provider_accounts;
 CREATE POLICY provider_accounts_isolation_policy
   ON payment_provider_accounts
+  USING (tenant_id = current_tenant_id());
+
+DROP POLICY IF EXISTS tenant_integration_credentials_isolation_policy ON tenant_integration_credentials;
+CREATE POLICY tenant_integration_credentials_isolation_policy
+  ON tenant_integration_credentials
   USING (tenant_id = current_tenant_id());
 
 DROP POLICY IF EXISTS tenant_subscriptions_isolation_policy ON tenant_subscriptions;

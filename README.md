@@ -7,6 +7,7 @@ Initial scaffold for a modular multi-tenant SaaS platform built with:
 - PostgreSQL database schema with tenant isolation primitives
 - AES-256-GCM encryption utilities for sensitive payment-provider credentials
 - JWT authentication with tenant-scoped sessions and subscription-aware feature gates
+- Self-service admin integration settings for Stripe, Airwallex, and Wise
 
 ## Workspace structure
 
@@ -70,6 +71,28 @@ During hibernation:
 - API write features are locked
 - Auto-fill is locked until billing is restored
 
+## Self-service provider settings
+
+Admins can now manage provider integration settings directly for each tenant:
+
+- Stripe API key + webhook secret
+- Airwallex client ID + API key + webhook secret
+- Wise API token + webhook secret
+
+The backend stores each secret encrypted with AES-256-GCM in
+`tenant_integration_credentials`. Admins can:
+
+- save provider credentials without platform intervention
+- view masked summaries of stored values
+- run connection tests against provider APIs
+- see the latest connection-test status and error preview
+
+Connection tests use lightweight authenticated endpoints:
+
+- Stripe: `GET /v1/balance`
+- Airwallex: `POST /api/v1/authentication/login`
+- Wise: `GET /v1/profiles`
+
 ## Key files
 
 - `docs/architecture.md`: modular architecture and tenancy design
@@ -78,6 +101,7 @@ During hibernation:
 - `apps/api/src/modules/secrets`: secret-management module scaffold
 - `apps/api/src/modules/auth`: JWT authentication, registration, login, refresh, and session endpoints
 - `apps/api/src/modules/subscriptions/subscriptions.service.js`: trial expiration and hibernation logic
+- `apps/api/src/modules/integrations`: encrypted self-service integration settings and provider connection tests
 
 ## Local setup
 
@@ -90,9 +114,11 @@ During hibernation:
 
 - `DATABASE_URL`
 - `ENCRYPTION_MASTER_KEY`
-- `JWT_SECRET`
-- `JWT_ACCESS_TTL_SECONDS`
-- `JWT_REFRESH_TTL_SECONDS`
+- `JWT_ACCESS_SECRET`
+- `JWT_REFRESH_SECRET`
+- `JWT_ACCESS_TTL`
+- `JWT_REFRESH_TTL`
+- `CONNECTION_TEST_TIMEOUT_MS`
 
 ## Notes
 
