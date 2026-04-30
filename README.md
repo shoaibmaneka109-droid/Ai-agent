@@ -37,7 +37,18 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 - **Employee UI**: **`/agency/my-card`** — calls **`GET /api/v1/virtual-cards/my-virtual-card/details`** (requires active subscription/trial). For **`role = member`**, middleware **`requireEmployeeVpsIpForCardAccess`** loads **`organization_members.allowed_vps_ip`** and compares it to **`getRequestClientIp(req)`** using **`ip-address`** canonical equality (IPv4/IPv6); mismatch → **403** `VPS_IP_MISMATCH` (body includes **`observedIp`**, **`expectedIp`**, **`trustProxy`**). Owners/admins skip IP check (they do not receive simulated full PAN).
 - **Production**: set **`TRUST_PROXY=1`** and place Express behind a proxy that sets **`X-Forwarded-For`** so the client IP reflects the employee’s VPS. See `apps/api/src/lib/requestIp.ts` and `apps/api/src/index.ts` (`app.set('trust proxy', 1)`).
 
-Upgrade: run migrations in order through **`007_master_freeze_emergency_lockdown.sql`** (after `005`, `006`).
+Upgrade: run migrations in order through **`011_audit_logs_actor_nullable.sql`** (after `005`–`010`).
+
+## Guard-Dog (security monitoring)
+
+- **`organizations.guard_dog_enabled`** — when true, suspicious events (extension merchant denied, VPS mismatch on extension, non-employee extension calls) emit **`guard_dog_alert`** on Socket.io to the org room in addition to **`audit_logs`** (`action: guard_dog_event`).
+- **`organizations.guard_dog_auto_lockdown`** — when true (and Guard-Dog enabled), those events also set **`emergency_lockdown_at`** and log `guard_dog_emergency_lockdown`.
+- **API**: **`GET` / `PATCH /api/v1/organizations/:orgId/guard-dog-settings`** — main admin (`requireMainAgencyAdmin`). PATCH body may include `guardDogEnabled`, `guardDogAutoLockdown` (booleans).
+
+## Master card, super admin & fund recall
+
+- **`organization_virtual_cards.card_kind`**: `STANDARD` | **`MASTER_CARD`** (one master per org). **`MASTER_CARD`** is omitted from list APIs unless the caller is **`super_admin`**.
+- **`POST /api/v1/organizations/:orgId/fund-recall`** — **`super_admin`** only; audited. With **`STRIPE_ISSUING_RECALL_MODE=live`**, attempts Stripe **`POST /v1/balance_transfers`** from Issuing balance to main balance (see Stripe Issuing funding docs); default remains simulated.
 
 ## Master freeze, emergency lockdown & extension status
 

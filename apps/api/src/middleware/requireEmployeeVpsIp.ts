@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import { getPool } from "../lib/db/pool.js";
 import { getRequestClientIp, clientIpMatchesAllowed } from "../lib/requestIp.js";
 import { env } from "../config/env.js";
+import { handleGuardDogSecurityEvent } from "../lib/guardDog.js";
 
 /**
  * For employees (`member` role): request IP must match `organization_members.allowed_vps_ip`
@@ -53,6 +54,16 @@ export async function requireEmployeeVpsIpForCardAccess(
         observedIp: clientIp,
         trustProxy: env.trustProxy,
       });
+      if (req.tenantId && req.auth?.userId) {
+        void handleGuardDogSecurityEvent({
+          organizationId: req.tenantId,
+          userId: req.auth.userId,
+          code: "VPS_IP_MISMATCH",
+          message: "Employee card access denied: VPS IP mismatch",
+          observedIp: clientIp,
+          expectedIp: allowed,
+        });
+      }
       return;
     }
     next();

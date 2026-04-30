@@ -7,7 +7,7 @@ export function sqlExcludeMasterCardUnlessSuperAdmin(roleParam: string): string 
 
 export async function insertAuditLog(input: {
   organizationId: string;
-  actorUserId: string;
+  actorUserId: string | null;
   action: string;
   payload: Record<string, unknown>;
 }): Promise<string> {
@@ -88,6 +88,7 @@ export async function recallFunds(params: {
     },
   });
   const mode = process.env.STRIPE_ISSUING_RECALL_MODE ?? "simulated";
+  const currency = (process.env.STRIPE_ISSUING_RECALL_CURRENCY ?? "usd").toLowerCase();
   if (mode === "live") {
     try {
       const { getDecryptedCredential } = await import("../modules/billing/credentials.repository.js");
@@ -103,40 +104,84 @@ export async function recallFunds(params: {
       }
       const Stripe = (await import("stripe")).default;
       const stripe = new Stripe(secret);
-      const card = await stripe.issuing.cards.retrieve(from.external_ref);
-      const bal = (card as { spending_controls?: { spending_limits?: { amount?: number }[] } }).spending_controls;
-      const limitAmt = bal?.spending_limits?.[0]?.amount;
-      if (typeof limitAmt === "number" && limitAmt < amount) {
+      const balance = await stripe.balance.retrieve();
+      let issuingAvailable = 0;
+      const issuing = balance.issuing?.available ?? [];
+      for (const row of issuing) {
+        if (row.currency === currency) {
+          issuingAvailable = row.amount;
+          break;
+        }
+      }
+      if (issuingAvailable < amount) {
         await insertAuditLog({
           organizationId: params.organizationId,
           actorUserId: params.actorUserId,
           action: "fund_recall_failed",
-          payload: { reason: "insufficient_balance", available: limitAmt, requested: amount },
+          payload: {
+            reason: "insufficient_issuing_balance",
+            available: issuingAvailable,
+            requested: amount,
+            currency,
+          },
         });
-        return { ok: false, statusCode: 402, message: "Insufficient balance on employee card for this recall" };
+        return {
+          ok: false,
+          statusCode: 402,
+          message: "Insufficient Issuing balance for this recall amount",
+        };
       }
+      const metadata: Record<string, string> = {
+        securepay_recall_from_card: from.external_ref,
+        securepay_organization_id: params.organizationId,
+      };
+      if (masterRef) metadata.securepay_master_card_ref = masterRef;
+      const transfer = (await stripe.rawRequest("POST", "/v1/balance_transfers", {
+        amount,
+        currency,
+        "source_balance[type]": "issuing",
+        "destination_balance[type]": "payments",
+        metadata,
+      })) as { id?: string };
+      const providerRef = transfer?.id;
+      await pool.query(
+        `INSERT INTO organization_card_fund_transfers
+          (organization_id, from_virtual_card_id, amount_cents, initiated_by_user_id, note, status)
+         VALUES ($1, $2::uuid, $3, $4, $5, $6)`,
+        [
+          params.organizationId,
+          from.id,
+          amount,
+          params.actorUserId,
+          `fund_recall_stripe_balance_transfer master=${masterRef ?? "none"}`,
+          "stripe_balance_transfer",
+        ]
+      );
       await insertAuditLog({
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
-        action: "fund_recall_completed_live_stub",
+        action: "fund_recall_completed_stripe",
         payload: {
-          note: "STRIPE_ISSUING_RECALL_MODE=live set but provider-specific transfer not wired — extend fundRecall.ts",
           fromExternalRef: from.external_ref,
           masterExternalRef: masterRef,
           amountCents: amount,
+          currency,
+          stripeBalanceTransferId: providerRef ?? null,
         },
       });
       return {
         ok: true,
         statusCode: 200,
-        message:
-          "Recall accepted and audited. Wire stripe.treasury / issuing balance transfer per your Stripe Issuing setup.",
+        message: "Funds moved from Issuing balance to main Stripe balance (balance_transfers).",
         simulated: false,
+        providerRef,
       };
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       const insufficient =
-        msg.toLowerCase().includes("insufficient") || msg.toLowerCase().includes("balance");
+        msg.toLowerCase().includes("insufficient") ||
+        msg.toLowerCase().includes("balance") ||
+        msg.toLowerCase().includes("amount_too_small");
       await insertAuditLog({
         organizationId: params.organizationId,
         actorUserId: params.actorUserId,
@@ -146,7 +191,7 @@ export async function recallFunds(params: {
       return {
         ok: false,
         statusCode: insufficient ? 402 : 502,
-        message: insufficient ? "Insufficient balance on employee card" : msg,
+        message: insufficient ? "Insufficient balance for recall (Stripe)" : msg,
       };
     }
   }

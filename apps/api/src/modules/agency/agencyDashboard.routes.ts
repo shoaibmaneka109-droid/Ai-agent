@@ -13,7 +13,7 @@ import {
   requireManageEmployeesOrViewCards,
 } from "../../middleware/requireOrgPermissions.js";
 import { env } from "../../config/env.js";
-import { sqlExcludeMasterCardUnlessSuperAdmin, recallFunds } from "../../lib/fundRecall.js";
+import { sqlExcludeMasterCardUnlessSuperAdmin, recallFunds, insertAuditLog } from "../../lib/fundRecall.js";
 import { requireSuperAdmin } from "../../middleware/requireOrgPermissions.js";
 
 const r = Router({ mergeParams: true });
@@ -446,6 +446,98 @@ r.post(
     } catch (e) {
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Failed to update emergency lockdown" });
+    }
+  }
+);
+
+/** Guard-Dog: read monitoring flags (main admin / super admin). */
+r.get(
+  "/guard-dog-settings",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    try {
+      const pool = getPool();
+      const { rows } = await pool.query<{
+        guard_dog_enabled: boolean;
+        guard_dog_auto_lockdown: boolean;
+        emergency_lockdown_at: Date | null;
+      }>(
+        `SELECT guard_dog_enabled, guard_dog_auto_lockdown, emergency_lockdown_at
+         FROM organizations WHERE id = $1`,
+        [req.tenantId]
+      );
+      const row = rows[0];
+      res.json({
+        guardDogEnabled: Boolean(row?.guard_dog_enabled),
+        guardDogAutoLockdown: Boolean(row?.guard_dog_auto_lockdown),
+        emergencyLockdown: Boolean(row?.emergency_lockdown_at),
+      });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to read Guard-Dog settings" });
+    }
+  }
+);
+
+/** Guard-Dog: update monitoring flags (main admin / super admin). */
+r.patch(
+  "/guard-dog-settings",
+  requireAuth,
+  requireTenantMembership,
+  requireOrgAdmin,
+  requireMainAgencyAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as { guardDogEnabled?: boolean; guardDogAutoLockdown?: boolean };
+    if (typeof body.guardDogEnabled !== "boolean" && typeof body.guardDogAutoLockdown !== "boolean") {
+      res.status(400).json({ error: "guardDogEnabled and/or guardDogAutoLockdown (boolean) required" });
+      return;
+    }
+    try {
+      const pool = getPool();
+      if (typeof body.guardDogEnabled === "boolean" && typeof body.guardDogAutoLockdown === "boolean") {
+        await pool.query(
+          `UPDATE organizations SET guard_dog_enabled = $2, guard_dog_auto_lockdown = $3 WHERE id = $1`,
+          [req.tenantId, body.guardDogEnabled, body.guardDogAutoLockdown]
+        );
+      } else if (typeof body.guardDogEnabled === "boolean") {
+        await pool.query(`UPDATE organizations SET guard_dog_enabled = $2 WHERE id = $1`, [
+          req.tenantId,
+          body.guardDogEnabled,
+        ]);
+      } else {
+        await pool.query(`UPDATE organizations SET guard_dog_auto_lockdown = $2 WHERE id = $1`, [
+          req.tenantId,
+          body.guardDogAutoLockdown,
+        ]);
+      }
+      await insertAuditLog({
+        organizationId: req.tenantId!,
+        actorUserId: req.auth!.userId,
+        action: "guard_dog_settings_updated",
+        payload: {
+          guardDogEnabled: body.guardDogEnabled,
+          guardDogAutoLockdown: body.guardDogAutoLockdown,
+        },
+      });
+      const { rows } = await pool.query<{
+        guard_dog_enabled: boolean;
+        guard_dog_auto_lockdown: boolean;
+      }>(
+        `SELECT guard_dog_enabled, guard_dog_auto_lockdown FROM organizations WHERE id = $1`,
+        [req.tenantId]
+      );
+      res.json({
+        guardDogEnabled: Boolean(rows[0]?.guard_dog_enabled),
+        guardDogAutoLockdown: Boolean(rows[0]?.guard_dog_auto_lockdown),
+      });
+    } catch (e) {
+      if (env.nodeEnv !== "production") console.error(e);
+      res.status(500).json({ error: "Failed to update Guard-Dog settings" });
     }
   }
 );

@@ -8,6 +8,7 @@ import { requireFullSubscription } from "../../middleware/requireFullSubscriptio
 import { extensionCorsHeaders } from "../../middleware/extensionCors.js";
 import { env } from "../../config/env.js";
 import { getRequestClientIp, clientIpMatchesAllowed } from "../../lib/requestIp.js";
+import { handleGuardDogSecurityEvent } from "../../lib/guardDog.js";
 
 const r = Router();
 
@@ -32,6 +33,15 @@ r.get(
   async (req: Request, res: Response) => {
     if (req.orgMemberRole !== "member") {
       res.status(403).json({ error: "Extension checkout is for employee accounts only", code: "NOT_EMPLOYEE" });
+      if (req.tenantId && req.auth?.userId) {
+        void handleGuardDogSecurityEvent({
+          organizationId: req.tenantId,
+          userId: req.auth.userId,
+          code: "EXTENSION_NOT_EMPLOYEE",
+          message: "Extension card-fill-status called by non-employee",
+          hostname: (req.query.hostname as string | undefined) ?? null,
+        });
+      }
       return;
     }
     const raw = (req.query.hostname as string | undefined) ?? "";
@@ -50,6 +60,15 @@ r.get(
         [req.tenantId, hostname]
       );
       if (!allowRows[0]?.ok) {
+        if (req.tenantId && req.auth?.userId) {
+          void handleGuardDogSecurityEvent({
+            organizationId: req.tenantId,
+            userId: req.auth.userId,
+            code: "EXTENSION_MERCHANT_DENIED",
+            message: "Extension checkout attempt on non-whitelisted hostname",
+            hostname,
+          });
+        }
         res.json({
           canFill: false,
           hostname,
@@ -65,6 +84,15 @@ r.get(
       );
       const allowed = ipRows[0]?.allowed_vps_ip ?? null;
       if (!allowed) {
+        if (req.tenantId && req.auth?.userId) {
+          void handleGuardDogSecurityEvent({
+            organizationId: req.tenantId,
+            userId: req.auth.userId,
+            code: "VPS_IP_REQUIRED",
+            message: "Extension checkout: no VPS IP on employee record",
+            hostname,
+          });
+        }
         res.status(403).json({
           error: "No VPS IP configured for your account.",
           code: "VPS_IP_REQUIRED",
@@ -73,6 +101,17 @@ r.get(
       }
       const clientIp = getRequestClientIp(req);
       if (!clientIpMatchesAllowed(clientIp, allowed)) {
+        if (req.tenantId && req.auth?.userId) {
+          void handleGuardDogSecurityEvent({
+            organizationId: req.tenantId,
+            userId: req.auth.userId,
+            code: "VPS_IP_MISMATCH",
+            message: "Extension checkout: VPS IP mismatch",
+            observedIp: clientIp,
+            expectedIp: allowed,
+            hostname,
+          });
+        }
         res.status(403).json({
           error: "Request IP does not match registered VPS IP.",
           code: "VPS_IP_MISMATCH",
@@ -193,6 +232,15 @@ r.get(
   async (req: Request, res: Response) => {
     if (req.orgMemberRole !== "member") {
       res.status(403).json({ error: "Extension checkout autofill is for employee accounts only" });
+      if (req.tenantId && req.auth?.userId) {
+        void handleGuardDogSecurityEvent({
+          organizationId: req.tenantId,
+          userId: req.auth.userId,
+          code: "EXTENSION_NOT_EMPLOYEE",
+          message: "Extension checkout-card called by non-employee",
+          hostname: (req.query.hostname as string | undefined) ?? null,
+        });
+      }
       return;
     }
     const raw = (req.query.hostname as string | undefined) ?? "";
@@ -211,6 +259,15 @@ r.get(
         [req.tenantId, hostname]
       );
       if (!allowRows[0]?.ok) {
+        if (req.tenantId && req.auth?.userId) {
+          void handleGuardDogSecurityEvent({
+            organizationId: req.tenantId,
+            userId: req.auth.userId,
+            code: "EXTENSION_MERCHANT_DENIED",
+            message: "Extension autofill blocked: merchant not whitelisted",
+            hostname,
+          });
+        }
         res.status(403).json({ error: "This merchant is not on the admin whitelist", code: "MERCHANT_NOT_WHITELISTED" });
         return;
       }

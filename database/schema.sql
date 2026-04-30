@@ -25,6 +25,8 @@ CREATE TABLE organizations (
   trial_ends_at         TIMESTAMPTZ NOT NULL,
   subscription_ends_at TIMESTAMPTZ,
   emergency_lockdown_at TIMESTAMPTZ,
+  guard_dog_enabled         BOOLEAN NOT NULL DEFAULT false,
+  guard_dog_auto_lockdown   BOOLEAN NOT NULL DEFAULT false,
   created_at            TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at            TIMESTAMPTZ NOT NULL DEFAULT now()
 );

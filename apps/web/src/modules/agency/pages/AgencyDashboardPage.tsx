@@ -63,6 +63,8 @@ export function AgencyDashboardPage() {
   const [wlHost, setWlHost] = useState("");
   const [wlLabel, setWlLabel] = useState("");
   const [emergencyLockdown, setEmergencyLockdown] = useState(false);
+  const [guardDogEnabled, setGuardDogEnabled] = useState(false);
+  const [guardDogAutoLockdown, setGuardDogAutoLockdown] = useState(false);
   const [cardFrozenToast, setCardFrozenToast] = useState<string | null>(null);
   const [mgrEmail, setMgrEmail] = useState("");
   const [mgrPassword, setMgrPassword] = useState("");
@@ -120,10 +122,22 @@ export function AgencyDashboardPage() {
           `/api/v1/organizations/${orgId}/emergency-lockdown`
         );
         setEmergencyLockdown(lock.emergencyLockdown ?? false);
+        const gd = await apiJson<{
+          guardDogEnabled?: boolean;
+          guardDogAutoLockdown?: boolean;
+          emergencyLockdown?: boolean;
+        }>(`/api/v1/organizations/${orgId}/guard-dog-settings`);
+        setGuardDogEnabled(Boolean(gd.guardDogEnabled));
+        setGuardDogAutoLockdown(Boolean(gd.guardDogAutoLockdown));
+        if (typeof gd.emergencyLockdown === "boolean") {
+          setEmergencyLockdown(gd.emergencyLockdown);
+        }
       } else {
         setSubAdmins([]);
         setWhitelistMerchants([]);
         setEmergencyLockdown(false);
+        setGuardDogEnabled(false);
+        setGuardDogAutoLockdown(false);
       }
     } catch (err: unknown) {
       const e = err as { status?: number; body?: { error?: string } };
@@ -165,13 +179,23 @@ export function AgencyDashboardPage() {
 
   useEffect(() => {
     if (!canDashboard || !orgId) return;
-    const unsub = subscribeOrgCardEvents((p) => {
-      if (p.organizationId !== orgId) return;
-      setCardFrozenToast(
-        `Card …${p.last4} frozen via webhook (${p.provider}). Session freeze applied — refresh list if needed.`
-      );
-      void loadDashboard();
-    });
+    const unsub = subscribeOrgCardEvents(
+      (p) => {
+        if (p.organizationId !== orgId) return;
+        setCardFrozenToast(
+          `Card …${p.last4} frozen via webhook (${p.provider}). Session freeze applied — refresh list if needed.`
+        );
+        void loadDashboard();
+      },
+      (alert) => {
+        if (alert.organizationId !== orgId) return;
+        const loc = alert.hostname ? ` @ ${alert.hostname}` : "";
+        setCardFrozenToast(`Guard-Dog: ${alert.code} — ${alert.message}${loc}`);
+        if (alert.code === "GUARD_DOG_AUTO_LOCKDOWN") {
+          void loadDashboard();
+        }
+      }
+    );
     return unsub;
   }, [canDashboard, orgId, loadDashboard]);
 
@@ -354,6 +378,31 @@ export function AgencyDashboardPage() {
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Emergency lockdown failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function applyGuardDogSettings(next: { guardDogEnabled: boolean; guardDogAutoLockdown: boolean }) {
+    if (!orgId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const gd = await apiJson<{ guardDogEnabled?: boolean; guardDogAutoLockdown?: boolean }>(
+        `/api/v1/organizations/${orgId}/guard-dog-settings`,
+        {
+          method: "PATCH",
+          body: JSON.stringify({
+            guardDogEnabled: next.guardDogEnabled,
+            guardDogAutoLockdown: next.guardDogAutoLockdown,
+          }),
+        }
+      );
+      setGuardDogEnabled(Boolean(gd.guardDogEnabled));
+      setGuardDogAutoLockdown(Boolean(gd.guardDogAutoLockdown));
+    } catch (err: unknown) {
+      const e = err as { body?: { error?: string } };
+      setError(e.body?.error ?? "Guard-Dog settings update failed");
     } finally {
       setBusy(false);
     }
@@ -581,6 +630,45 @@ export function AgencyDashboardPage() {
               Clear lockdown
             </button>
           </div>
+        </section>
+      ) : null}
+
+      {isMainAdmin ? (
+        <section style={{ marginBottom: "2rem", padding: "1rem", background: "#f0fdf4", borderRadius: 8, border: "1px solid #bbf7d0" }}>
+          <h2 style={{ marginTop: 0 }}>Guard-Dog (security monitoring)</h2>
+          <p style={{ fontSize: 14, color: "#64748b" }}>
+            Suspicious extension and VPS events are always written to <strong>audit_logs</strong>. When enabled, admins
+            also get a <strong>real-time alert</strong> in this dashboard. Optional <strong>auto emergency lockdown</strong>{" "}
+            freezes the whole agency if Guard-Dog fires (use with care).
+          </p>
+          <label style={{ fontSize: 14, display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+            <input
+              type="checkbox"
+              checked={guardDogEnabled}
+              disabled={busy}
+              onChange={(e) =>
+                void applyGuardDogSettings({
+                  guardDogEnabled: e.target.checked,
+                  guardDogAutoLockdown: e.target.checked ? guardDogAutoLockdown : false,
+                })
+              }
+            />
+            Enable Guard-Dog alerts (Socket.io + audit)
+          </label>
+          <label style={{ fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+            <input
+              type="checkbox"
+              checked={guardDogAutoLockdown}
+              disabled={busy || !guardDogEnabled}
+              onChange={(e) =>
+                void applyGuardDogSettings({
+                  guardDogEnabled,
+                  guardDogAutoLockdown: e.target.checked,
+                })
+              }
+            />
+            Auto emergency lockdown on Guard-Dog event (requires Guard-Dog enabled)
+          </label>
         </section>
       ) : null}
 

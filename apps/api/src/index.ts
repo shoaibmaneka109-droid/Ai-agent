@@ -4,6 +4,7 @@ import { createApp } from "./app.js";
 import { env } from "./config/env.js";
 import { Server } from "socket.io";
 import { setPaymentWebhookIo } from "./modules/webhooks/paymentWebhook.service.js";
+import { setGuardDogEmitter } from "./lib/guardDog.js";
 
 const app = createApp();
 if (env.trustProxy) {
@@ -23,6 +24,9 @@ const io = new Server(httpServer, {
 });
 
 setPaymentWebhookIo(io);
+setGuardDogEmitter((payload) => {
+  io.to(`org:${payload.organizationId}`).emit("guard_dog_alert", payload);
+});
 
 io.use((socket, next) => {
   const orgId = socket.handshake.auth?.organizationId as string | undefined;
