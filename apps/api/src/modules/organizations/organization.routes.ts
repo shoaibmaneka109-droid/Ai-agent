@@ -1,10 +1,11 @@
-import { Router } from "express";
+import { Router, type RequestHandler } from "express";
 import { z } from "zod";
 
+import { authenticateJwt } from "../../middleware/authenticate-jwt.js";
+import { attachSubscriptionAccess, requireActiveSubscription } from "../../middleware/entitlements.js";
 import {
   requireTenantContext,
-  getTenantContext,
-  type TenantRequestHandler
+  getTenantContext
 } from "../../middleware/tenant-context.js";
 import { OrganizationRepository } from "./organization.repository.js";
 
@@ -19,7 +20,7 @@ const createOrganizationSchema = z.object({
 export const organizationRouter = Router();
 const repository = new OrganizationRepository();
 
-const listOrganizations: TenantRequestHandler = async (request, response, next) => {
+const listOrganizations: RequestHandler = async (request, response, next) => {
   try {
     const { tenantId } = getTenantContext(request);
     const organizations = await repository.listByTenant(tenantId);
@@ -29,7 +30,7 @@ const listOrganizations: TenantRequestHandler = async (request, response, next) 
   }
 };
 
-const createOrganization: TenantRequestHandler = async (request, response, next) => {
+const createOrganization: RequestHandler = async (request, response, next) => {
   try {
     const { tenantId } = getTenantContext(request);
     const body = createOrganizationSchema.parse(request.body);
@@ -49,5 +50,12 @@ const createOrganization: TenantRequestHandler = async (request, response, next)
   }
 };
 
-organizationRouter.get("/", requireTenantContext, listOrganizations);
-organizationRouter.post("/", requireTenantContext, createOrganization);
+organizationRouter.get("/", authenticateJwt, requireTenantContext, listOrganizations);
+organizationRouter.post(
+  "/",
+  authenticateJwt,
+  requireTenantContext,
+  attachSubscriptionAccess,
+  requireActiveSubscription,
+  createOrganization
+);

@@ -16,5 +16,9 @@ export const env = {
   databaseUrl: required("DATABASE_URL"),
   encryptionKey: required("ENCRYPTION_KEY_BASE64"),
   encryptionKeyVersion: Number(process.env.ENCRYPTION_KEY_VERSION ?? 1),
+  jwtSecret: required("JWT_SECRET"),
+  jwtIssuer: process.env.JWT_ISSUER ?? "securepay-api",
+  jwtAudience: process.env.JWT_AUDIENCE ?? "securepay-app",
+  jwtExpiresIn: process.env.JWT_EXPIRES_IN ?? "1h",
   corsOrigin: process.env.CORS_ORIGIN ?? "http://localhost:5173"
 };

@@ -11,6 +11,7 @@ SecurePay is a multi-tenant SaaS starter for securely storing and managing payme
 - Frontend: React, Vite, TypeScript
 - Database: PostgreSQL
 - Sensitive credential storage: AES-256-GCM envelope format
+- Authentication: JWT access tokens with tenant and organization claims
 
 ## Repository layout
 
@@ -46,3 +47,5 @@ psql "$DATABASE_URL" -f database/migrations/001_initial_securepay_schema.sql
 ```bash
 openssl rand -base64 32
 ```
+
+`JWT_SECRET` should be a high-entropy signing secret.

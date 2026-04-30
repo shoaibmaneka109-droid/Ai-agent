@@ -1,5 +1,7 @@
 import type { NextFunction, Request, Response } from "express";
 
+import { HttpError } from "./error-handler.js";
+
 export type TenantRequest = Request & {
   tenantContext: {
     tenantId: string;
@@ -22,7 +24,7 @@ export type TenantRequestHandler = (
 
 export const getTenantContext = (req: Request): TenantRequest["tenantContext"] => {
   if (!req.tenantContext) {
-    throw new Error("Tenant context has not been initialized");
+    throw new HttpError(400, "Tenant context has not been initialized", "TENANT_CONTEXT_REQUIRED");
   }
 
   return req.tenantContext;
@@ -30,7 +32,7 @@ export const getTenantContext = (req: Request): TenantRequest["tenantContext"] =
 
 export const getOrganizationContext = (req: Request): OrganizationTenantRequest["tenantContext"] => {
   if (!req.tenantContext?.organizationId) {
-    throw new Error("Organization tenant context has not been initialized");
+    throw new HttpError(400, "Organization tenant context has not been initialized", "ORGANIZATION_CONTEXT_REQUIRED");
   }
 
   return {
@@ -47,6 +49,17 @@ export function tenantContext(req: Request, _res: Response, next: NextFunction) 
     req.tenantContext = {
       tenantId,
       organizationId: organizationId || undefined
+    };
+  }
+
+  next();
+}
+
+export function applyAuthenticatedTenantContext(req: Request, _res: Response, next: NextFunction) {
+  if (req.auth) {
+    req.tenantContext = {
+      tenantId: req.auth.tenantId,
+      organizationId: req.auth.organizationId
     };
   }
 

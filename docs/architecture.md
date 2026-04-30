@@ -30,9 +30,28 @@ serving requests.
 - `config`: environment parsing and required secret validation.
 - `db`: PostgreSQL connection pooling.
 - `middleware`: tenant context and centralized error handling.
+- `modules/auth`: registration, login, JWT issuance, and session introspection.
 - `modules/organizations`: create and fetch tenant organizations.
+- `modules/members`: agency employee onboarding with trial-period employee limits.
+- `modules/subscriptions`: trial policy and hibernation entitlement checks.
 - `modules/api-keys`: store payment-provider API keys after AES-256-GCM encryption.
 - `security`: cryptographic helpers and key material validation.
+
+## Auth, trials, and hibernation
+
+SecurePay issues JWT access tokens from `/v1/auth/register` and `/v1/auth/login`. Tokens carry
+the user, tenant, organization, and organization role so downstream middleware can rebuild tenant
+context without trusting client-supplied tenant headers.
+
+Trial policy:
+
+- Solo tenants receive a 15-day free trial.
+- Agency tenants receive a 30-day free trial.
+- Agency owners/admins can add up to 9 employees while the agency is trialing.
+
+When a trial or paid period is no longer active, entitlement middleware places the tenant in
+read-only hibernation. Users can still authenticate and read stored data, but write/API operations
+and auto-fill routes return `402 SUBSCRIPTION_PAYMENT_REQUIRED` until payment restores access.
 
 ## Encryption layer
 
