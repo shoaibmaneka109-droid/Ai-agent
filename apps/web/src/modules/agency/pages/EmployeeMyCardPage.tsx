@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useState, useEffect, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { apiJson } from "../../../shared/lib/api";
 
@@ -10,6 +10,11 @@ export function EmployeeMyCardPage() {
   const [payLoading, setPayLoading] = useState(false);
   const [amount, setAmount] = useState("100");
   const [merchantRef, setMerchantRef] = useState("test-merchant");
+  const [pendingSummary, setPendingSummary] = useState<string | null>(null);
+
+  useEffect(() => {
+    setPendingSummary(null);
+  }, [amount, merchantRef]);
 
   async function load(ev?: FormEvent) {
     ev?.preventDefault();
@@ -27,8 +32,25 @@ export function EmployeeMyCardPage() {
     }
   }
 
-  async function authorizedPayment(ev: FormEvent) {
+  function preparePayment(ev: FormEvent) {
     ev.preventDefault();
+    setError(null);
+    setPayResult(null);
+    const usd = Number(amount);
+    if (!Number.isFinite(usd) || usd <= 0) {
+      setError(JSON.stringify({ error: "Enter a valid amount" }));
+      setPendingSummary(null);
+      return;
+    }
+    if (!merchantRef.trim()) {
+      setError(JSON.stringify({ error: "Merchant ref is required" }));
+      setPendingSummary(null);
+      return;
+    }
+    setPendingSummary(`${usd.toFixed(2)} USD · ${merchantRef.trim()}`);
+  }
+
+  async function acceptPayment() {
     setPayLoading(true);
     setError(null);
     setPayResult(null);
@@ -36,15 +58,22 @@ export function EmployeeMyCardPage() {
       const cents = Math.round(Number(amount) * 100);
       const j = await apiJson<Record<string, unknown>>("/api/v1/virtual-cards/authorized-payment", {
         method: "POST",
-        body: JSON.stringify({ amountCents: cents, merchantRef }),
+        body: JSON.stringify({ amountCents: cents, merchantRef: merchantRef.trim() }),
       });
       setPayResult(j);
+      setPendingSummary(null);
     } catch (err: unknown) {
       const e = err as { status?: number; body?: Record<string, unknown> };
       setError(JSON.stringify(e.body ?? { status: e.status }));
     } finally {
       setPayLoading(false);
     }
+  }
+
+  function rejectPayment() {
+    setPendingSummary(null);
+    setPayResult(null);
+    setError(null);
   }
 
   return (
@@ -62,7 +91,11 @@ export function EmployeeMyCardPage() {
         </button>
       </form>
       <h2 style={{ fontSize: "1.1rem", marginTop: "1.5rem" }}>Simulated authorized payment</h2>
-      <form onSubmit={authorizedPayment} style={{ display: "grid", gap: 8, maxWidth: 360 }}>
+      <p style={{ fontSize: 13, color: "#64748b", marginTop: 0 }}>
+        Enter the amount and merchant reference, then use <strong>Accept</strong> to confirm the charge or{" "}
+        <strong>Reject</strong> to cancel.
+      </p>
+      <form onSubmit={preparePayment} style={{ display: "grid", gap: 8, maxWidth: 360 }}>
         <label>
           Amount (USD)
           <input
@@ -78,10 +111,50 @@ export function EmployeeMyCardPage() {
           Merchant ref
           <input value={merchantRef} onChange={(e) => setMerchantRef(e.target.value)} style={{ width: "100%", padding: 8, marginTop: 4 }} />
         </label>
-        <button type="submit" disabled={payLoading}>
-          {payLoading ? "…" : "POST authorized payment"}
-        </button>
+        <div style={{ display: "flex", gap: 10, flexWrap: "wrap", marginTop: 4 }}>
+          <button type="submit" disabled={payLoading} style={{ padding: "10px 20px", minWidth: 120 }}>
+            Review
+          </button>
+          <button
+            type="button"
+            disabled={payLoading || !pendingSummary}
+            onClick={() => void acceptPayment()}
+            style={{
+              padding: "10px 20px",
+              minWidth: 120,
+              background: "#15803d",
+              color: "#fff",
+              border: "none",
+              borderRadius: 6,
+              cursor: payLoading || !pendingSummary ? "not-allowed" : "pointer",
+              opacity: pendingSummary ? 1 : 0.5,
+            }}
+          >
+            {payLoading ? "…" : "Accept"}
+          </button>
+          <button
+            type="button"
+            disabled={payLoading}
+            onClick={rejectPayment}
+            style={{
+              padding: "10px 20px",
+              minWidth: 120,
+              background: "#fff",
+              color: "#b91c1c",
+              border: "1px solid #fecaca",
+              borderRadius: 6,
+              cursor: "pointer",
+            }}
+          >
+            Reject
+          </button>
+        </div>
       </form>
+      {pendingSummary ? (
+        <p style={{ fontSize: 14, marginTop: 12, padding: "10px 12px", background: "#fefce8", borderRadius: 6, border: "1px solid #fde047" }}>
+          <strong>Ready to confirm:</strong> {pendingSummary}
+        </p>
+      ) : null}
       {error ? (
         <pre style={{ color: "#b91c1c", whiteSpace: "pre-wrap", fontSize: 13 }}>{error}</pre>
       ) : null}
