@@ -9,6 +9,7 @@ import PaymentsPage     from './pages/dashboard/PaymentsPage';
 import ApiKeysPage      from './pages/settings/ApiKeysPage';
 import OrgSettingsPage  from './pages/settings/OrgSettingsPage';
 import TeamPage         from './pages/settings/TeamPage';
+import SubscriptionPage from './pages/settings/SubscriptionPage';
 import AppLayout        from './components/layout/AppLayout';
 
 function PrivateRoute({ children }) {
@@ -49,9 +50,10 @@ export default function App() {
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard"          element={<DashboardPage />} />
           <Route path="payments"           element={<PaymentsPage />} />
-          <Route path="settings/api-keys"  element={<ApiKeysPage />} />
-          <Route path="settings/org"       element={<OrgSettingsPage />} />
-          <Route path="settings/team"      element={<TeamPage />} />
+          <Route path="settings/api-keys"      element={<ApiKeysPage />} />
+          <Route path="settings/org"           element={<OrgSettingsPage />} />
+          <Route path="settings/team"          element={<TeamPage />} />
+          <Route path="settings/subscription"  element={<SubscriptionPage />} />
         </Route>
 
         <Route path="*" element={<Navigate to="/dashboard" replace />} />

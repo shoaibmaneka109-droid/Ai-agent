@@ -1,14 +1,17 @@
 const { Router } = require('express');
 const { body, param } = require('express-validator');
-const authenticate  = require('../../middleware/authenticate');
-const authorize     = require('../../middleware/authorize');
-const validate      = require('../../middleware/validate');
+const authenticate       = require('../../middleware/authenticate');
+const authorize          = require('../../middleware/authorize');
+const checkSubscription  = require('../../middleware/checkSubscription');
+const validate           = require('../../middleware/validate');
 const { listApiKeys, createApiKey, rotateApiKey, deleteApiKey } = require('./apiKeys.service');
 const { success, created, noContent } = require('../../utils/apiResponse');
 
 const router = Router({ mergeParams: true });
 
-router.use(authenticate, authorize('owner', 'admin'));
+// API key management requires full active subscription (requireActive).
+// Even listing keys is locked in hibernation — raw keys are operational data.
+router.use(authenticate, authorize('owner', 'admin'), checkSubscription.requireActive);
 
 router.get('/', async (req, res, next) => {
   try {

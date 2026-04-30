@@ -15,16 +15,18 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
-// ── Response interceptor: token refresh on 401 ───────────────────────────────
+// ── Response interceptor ──────────────────────────────────────────────────────
 let refreshing = null;
 
 api.interceptors.response.use(
   (res) => res,
   async (error) => {
     const original = error.config;
+    const status   = error.response?.status;
 
+    // ── 401: try token refresh, then re-attempt original ──────────────────
     if (
-      error.response?.status === 401 &&
+      status === 401 &&
       !original._retry &&
       !original.url?.includes('/auth/refresh')
     ) {
@@ -43,9 +45,7 @@ api.interceptors.response.use(
             window.location.href = '/login';
             return Promise.reject(error);
           })
-          .finally(() => {
-            refreshing = null;
-          });
+          .finally(() => { refreshing = null; });
       }
 
       try {
@@ -55,6 +55,14 @@ api.interceptors.response.use(
       } catch {
         return Promise.reject(error);
       }
+    }
+
+    // ── 402: Payment Required / Data Hibernation ──────────────────────────
+    // Bubble the subscription payload so UI components can react to it
+    // without each needing their own 402-handling code.
+    if (status === 402) {
+      const subData = error.response?.data?.error?.subscription;
+      window.dispatchEvent(new CustomEvent('securepay:hibernated', { detail: subData }));
     }
 
     return Promise.reject(error);

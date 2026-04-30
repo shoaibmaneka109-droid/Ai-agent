@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { CreditCard, RefreshCw, Filter } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSubscription } from '../../contexts/SubscriptionContext';
 import { getPayments, refundPayment } from '../../services/payments.service';
 
 const STATUS_OPTIONS = ['', 'pending', 'succeeded', 'failed', 'refunded'];
@@ -23,9 +24,11 @@ function formatAmount(amount, currency) {
 }
 
 export default function PaymentsPage() {
-  const { user }   = useAuth();
+  const { user }          = useAuth();
+  const { subscription }  = useSubscription();
   const orgSlug    = user?.org_slug || user?.orgSlug;
   const qc         = useQueryClient();
+  const hibernated = subscription?.isHibernated ?? false;
 
   const [page,     setPage]     = useState(1);
   const [status,   setStatus]   = useState('');
@@ -56,6 +59,14 @@ export default function PaymentsPage() {
         </div>
         {isFetching && <RefreshCw className="h-5 w-5 animate-spin text-primary-500" />}
       </div>
+
+      {hibernated && (
+        <div className="flex items-center gap-3 rounded-lg bg-amber-50 border border-amber-200 px-4 py-3">
+          <span className="text-amber-600 font-medium text-sm">
+            Read-only mode — your payment history is visible but new transactions and refunds are locked until you renew.
+          </span>
+        </div>
+      )}
 
       {/* Filters */}
       <div className="flex flex-wrap items-center gap-3">
@@ -122,7 +133,7 @@ export default function PaymentsPage() {
                       {new Date(p.created_at).toLocaleDateString()}
                     </td>
                     <td className="px-4 py-3">
-                      {p.status === 'succeeded' && (
+                      {p.status === 'succeeded' && !hibernated && (
                         <button
                           onClick={() => refund.mutate({ paymentId: p.id, reason: 'Customer request' })}
                           disabled={refund.isPending}

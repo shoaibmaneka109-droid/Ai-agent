@@ -1,8 +1,9 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Key, Plus, Trash2, RefreshCw, Eye, EyeOff, ShieldCheck } from 'lucide-react';
+import { Key, Plus, Trash2, RefreshCw, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { getApiKeys, createApiKey, rotateApiKey, deleteApiKey } from '../../services/apiKeys.service';
+import HibernationGate from '../../components/common/HibernationGate';
 
 const PROVIDERS = ['stripe', 'airwallex', 'paypal', 'braintree'];
 
@@ -84,7 +85,8 @@ export default function ApiKeysPage() {
         </div>
       </div>
 
-      {/* Keys table */}
+      {/* Keys table — locked during hibernation */}
+      <HibernationGate message="API key management is locked while your subscription is inactive.">
       <div className="card p-0 overflow-hidden">
         {isLoading ? (
           <div className="flex justify-center py-12">
@@ -144,6 +146,7 @@ export default function ApiKeysPage() {
           </table>
         )}
       </div>
+      </HibernationGate>
 
       {/* Add key modal */}
       {showAdd && (

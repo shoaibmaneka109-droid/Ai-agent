@@ -9,11 +9,13 @@ const config       = require('./config');
 const logger       = require('./utils/logger');
 const errorHandler = require('./middleware/errorHandler');
 
-const authRoutes     = require('./modules/auth/auth.routes');
-const tenantRoutes   = require('./modules/tenants/tenants.routes');
-const userRoutes     = require('./modules/users/users.routes');
-const paymentRoutes  = require('./modules/payments/payments.routes');
-const apiKeyRoutes   = require('./modules/api-keys/apiKeys.routes');
+const authRoutes         = require('./modules/auth/auth.routes');
+const tenantRoutes       = require('./modules/tenants/tenants.routes');
+const userRoutes         = require('./modules/users/users.routes');
+const paymentRoutes      = require('./modules/payments/payments.routes');
+const apiKeyRoutes       = require('./modules/api-keys/apiKeys.routes');
+const { tenantRouter: subscriptionRoutes, webhookRouter } =
+  require('./modules/subscriptions/subscriptions.routes');
 
 const app = express();
 
@@ -36,6 +38,9 @@ const limiter = rateLimit({
 });
 app.use('/api/', limiter);
 
+// ── Webhook MUST be mounted BEFORE body parsers (needs raw body for sig verify) ─
+app.use('/api/v1/webhooks', webhookRouter);
+
 // ── Request parsing ───────────────────────────────────────────────────────────
 app.use(compression());
 app.use(express.json({ limit: '2mb' }));
@@ -55,6 +60,7 @@ app.use('/api/v1/orgs/:orgSlug',                     tenantRoutes);
 app.use('/api/v1/orgs/:orgSlug/users',               userRoutes);
 app.use('/api/v1/orgs/:orgSlug/payments',            paymentRoutes);
 app.use('/api/v1/orgs/:orgSlug/api-keys',            apiKeyRoutes);
+app.use('/api/v1/orgs/:orgSlug/subscription',        subscriptionRoutes);
 
 // ── 404 ───────────────────────────────────────────────────────────────────────
 app.use((_req, res) => {

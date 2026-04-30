@@ -1,13 +1,17 @@
 const { Router } = require('express');
 const { body, query: qv, param } = require('express-validator');
-const authenticate = require('../../middleware/authenticate');
-const validate     = require('../../middleware/validate');
+const authenticate        = require('../../middleware/authenticate');
+const checkSubscription   = require('../../middleware/checkSubscription');
+const validate            = require('../../middleware/validate');
 const { createPayment, listPayments, getPayment, refundPayment } = require('./payments.service');
 const { success, created } = require('../../utils/apiResponse');
 
 const router = Router({ mergeParams: true });
 
-router.use(authenticate);
+// All payment routes require authentication + subscription check.
+// GETs (list, get) are allowed in hibernation so users can see their history.
+// Writes (create, refund) require an active subscription.
+router.use(authenticate, checkSubscription);
 
 router.get(
   '/',

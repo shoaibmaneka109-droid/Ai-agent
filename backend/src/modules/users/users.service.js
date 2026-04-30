@@ -1,6 +1,7 @@
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { query } = require('../../db/pool');
+const { assertSeatAvailable } = require('../subscriptions/subscriptions.service');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -20,6 +21,9 @@ async function getUser(userId, orgId) {
 }
 
 async function inviteUser(orgId, { email, firstName, lastName, role, tempPassword }) {
+  // Enforce trial seat cap (throws 402 if exceeded)
+  await assertSeatAvailable(orgId);
+
   const existing = await query('SELECT id FROM users WHERE email = $1', [email]);
   if (existing.rows.length) {
     const err = new Error('Email already registered');

@@ -2,16 +2,19 @@ import React, { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import {
   LayoutDashboard, CreditCard, Key, Settings, Users,
-  LogOut, Menu, X, ShieldCheck,
+  LogOut, Menu, X, ShieldCheck, Zap,
 } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
+import { SubscriptionProvider } from '../../contexts/SubscriptionContext';
+import SubscriptionBanner from '../common/SubscriptionBanner';
 
 const navItems = [
-  { to: '/dashboard',         label: 'Dashboard',  icon: LayoutDashboard },
-  { to: '/payments',          label: 'Payments',   icon: CreditCard },
-  { to: '/settings/api-keys', label: 'API Keys',   icon: Key },
-  { to: '/settings/team',     label: 'Team',       icon: Users },
-  { to: '/settings/org',      label: 'Settings',   icon: Settings },
+  { to: '/dashboard',              label: 'Dashboard',     icon: LayoutDashboard },
+  { to: '/payments',               label: 'Payments',      icon: CreditCard },
+  { to: '/settings/api-keys',      label: 'API Keys',      icon: Key },
+  { to: '/settings/team',          label: 'Team',          icon: Users },
+  { to: '/settings/subscription',  label: 'Subscription',  icon: Zap },
+  { to: '/settings/org',           label: 'Settings',      icon: Settings },
 ];
 
 export default function AppLayout() {
@@ -25,6 +28,7 @@ export default function AppLayout() {
   };
 
   return (
+    <SubscriptionProvider>
     <div className="flex h-screen overflow-hidden bg-gray-50">
       {/* Mobile overlay */}
       {open && (
@@ -113,10 +117,12 @@ export default function AppLayout() {
           </button>
         </header>
 
+        <SubscriptionBanner />
         <main className="flex-1 overflow-y-auto p-6">
           <Outlet />
         </main>
       </div>
     </div>
+    </SubscriptionProvider>
   );
 }

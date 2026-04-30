@@ -1,15 +1,19 @@
 const { Router } = require('express');
 const { body, query: qv, param } = require('express-validator');
-const authenticate   = require('../../middleware/authenticate');
-const authorize      = require('../../middleware/authorize');
-const tenantContext  = require('../../middleware/tenantContext');
-const validate       = require('../../middleware/validate');
+const authenticate       = require('../../middleware/authenticate');
+const authorize          = require('../../middleware/authorize');
+const tenantContext       = require('../../middleware/tenantContext');
+const checkSubscription  = require('../../middleware/checkSubscription');
+const validate           = require('../../middleware/validate');
 const { getOrganization, updateOrganization, upgradePlan, listMembers } = require('./tenants.service');
 const { success } = require('../../utils/apiResponse');
 
 const router = Router({ mergeParams: true });
 
-router.use(authenticate, tenantContext);
+// checkSubscription here uses default mode:
+//   GETs → always allowed (Data Hibernation: users can see their org data)
+//   Writes → blocked when hibernated
+router.use(authenticate, tenantContext, checkSubscription);
 
 router.get('/', async (req, res, next) => {
   try {

@@ -3,6 +3,7 @@ const jwt       = require('jsonwebtoken');
 const { v4: uuidv4 } = require('uuid');
 const config    = require('../../config');
 const { query, withTransaction } = require('../../db/pool');
+const { buildTrialParams, buildSubscriptionSnapshot } = require('../../utils/subscription');
 
 const BCRYPT_ROUNDS = 12;
 
@@ -23,13 +24,29 @@ async function register({ email, password, firstName, lastName, orgName, orgType
       throw err;
     }
 
+    const trial = buildTrialParams(orgType);
+
     const orgResult = await client.query(
-      `INSERT INTO organizations (id, name, slug, type)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO organizations
+         (id, name, slug, type, subscription_status, trial_ends_at, max_seats)
+       VALUES ($1, $2, $3, $4, 'trialing', $5, $6)
        RETURNING *`,
-      [uuidv4(), orgName, orgSlug, orgType],
+      [uuidv4(), orgName, orgSlug, orgType, trial.trialEndsAt, trial.maxSeats],
     );
     const org = orgResult.rows[0];
+
+    // Immutable subscription event
+    await client.query(
+      `INSERT INTO subscription_events
+         (id, organization_id, event_type, payload)
+       VALUES ($1, $2, 'trial.started', $3)`,
+      [uuidv4(), org.id, JSON.stringify({
+        orgType,
+        trialDays:   trial.trialDays,
+        trialEndsAt: trial.trialEndsAt,
+        maxSeats:    trial.maxSeats,
+      })],
+    );
 
     const passwordHash = await bcrypt.hash(password, BCRYPT_ROUNDS);
 
@@ -48,7 +65,8 @@ async function register({ email, password, firstName, lastName, orgName, orgType
 async function login({ email, password }) {
   const result = await query(
     `SELECT u.id, u.email, u.password_hash, u.role, u.is_active, u.first_name, u.last_name,
-            o.id AS org_id, o.slug AS org_slug, o.plan AS org_plan, o.is_active AS org_active
+            o.id AS org_id, o.slug AS org_slug, o.plan AS org_plan, o.is_active AS org_active,
+            o.subscription_status, o.trial_ends_at, o.subscription_ends_at, o.max_seats, o.type AS org_type
      FROM   users u
      JOIN   organizations o ON o.id = u.organization_id
      WHERE  u.email = $1`,
@@ -78,6 +96,11 @@ async function login({ email, password }) {
 
   await query('UPDATE users SET last_login_at = NOW() WHERE id = $1', [user.id]);
 
+  // Lazily expire trial on login if window has closed
+  const { checkAndExpireTrial } = require('../subscriptions/subscriptions.service');
+  const liveStatus = await checkAndExpireTrial(user.org_id);
+  if (liveStatus) user.subscription_status = liveStatus;
+
   const accessToken  = issueAccessToken(user);
   const refreshToken = issueRefreshToken(user);
 
@@ -96,7 +119,8 @@ async function refreshAccessToken(refreshToken) {
 
   const result = await query(
     `SELECT u.id, u.email, u.role, u.is_active, u.first_name, u.last_name,
-            o.id AS org_id, o.slug AS org_slug, o.plan AS org_plan, o.is_active AS org_active
+            o.id AS org_id, o.slug AS org_slug, o.plan AS org_plan, o.is_active AS org_active,
+            o.subscription_status, o.trial_ends_at, o.subscription_ends_at, o.max_seats, o.type AS org_type
      FROM   users u
      JOIN   organizations o ON o.id = u.organization_id
      WHERE  u.id = $1`,
@@ -137,15 +161,24 @@ function loginError() {
 }
 
 function publicUser(user) {
+  const orgRow = {
+    subscription_status: user.subscription_status,
+    trial_ends_at:       user.trial_ends_at,
+    subscription_ends_at: user.subscription_ends_at,
+    max_seats:           user.max_seats,
+    type:                user.org_type,
+  };
+
   return {
-    id:        user.id,
-    email:     user.email,
-    firstName: user.first_name,
-    lastName:  user.last_name,
-    role:      user.role,
-    orgId:     user.org_id,
-    orgSlug:   user.org_slug,
-    orgPlan:   user.org_plan,
+    id:           user.id,
+    email:        user.email,
+    firstName:    user.first_name,
+    lastName:     user.last_name,
+    role:         user.role,
+    orgId:        user.org_id,
+    orgSlug:      user.org_slug,
+    orgPlan:      user.org_plan,
+    subscription: buildSubscriptionSnapshot(orgRow),
   };
 }
 
