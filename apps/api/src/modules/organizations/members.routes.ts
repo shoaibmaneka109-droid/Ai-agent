@@ -65,7 +65,7 @@ r.post(
     try {
       await client.query("BEGIN");
       const cardCheck = await client.query<{ id: string }>(
-        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2`,
+        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2 AND card_kind = 'STANDARD'`,
         [body.virtualCardId.trim(), orgId]
       );
       if (!cardCheck.rows[0]) {

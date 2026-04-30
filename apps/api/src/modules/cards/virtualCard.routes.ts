@@ -31,7 +31,7 @@ r.get(
         `SELECT vc.external_ref, vc.last4, vc.label,
                 '****-****-****-' || vc.last4 AS pan_masked
          FROM organization_members m
-         JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
+         JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id AND vc.card_kind = 'STANDARD'
          WHERE m.organization_id = $1 AND m.user_id = $2`,
         [req.tenantId, req.auth!.userId]
       );

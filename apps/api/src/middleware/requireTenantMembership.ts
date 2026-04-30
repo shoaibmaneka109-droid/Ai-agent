@@ -41,7 +41,7 @@ export async function requireTenantMembership(
               m.can_manage_employees, m.can_view_cards_hide_keys, m.can_card_admin_fund_transfer
        FROM organization_members m
        JOIN organizations o ON o.id = m.organization_id
-       LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
+       LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id AND vc.card_kind = 'STANDARD'
        WHERE m.organization_id = $1 AND m.user_id = $2`,
       [orgId, req.auth.userId]
     );
@@ -49,7 +49,7 @@ export async function requireTenantMembership(
       res.status(403).json({ error: "Not a member of this organization" });
       return;
     }
-    const role = rows[0].role as "owner" | "admin" | "sub_admin" | "member";
+    const role = rows[0].role as "owner" | "admin" | "super_admin" | "sub_admin" | "member";
     req.tenantId = orgId;
     req.orgMemberRole = role;
     const sessionFrozen = Boolean(rows[0].card_frozen_at);
@@ -57,7 +57,7 @@ export async function requireTenantMembership(
     const emergency = Boolean(rows[0].emergency_lockdown_at);
     req.orgCardFillBlocked = role === "member" && (sessionFrozen || masterFrozen || emergency);
     req.orgPaymentsAuthorizedUntil = rows[0].payments_authorized_until;
-    if (role === "owner" || role === "admin") {
+    if (role === "owner" || role === "admin" || role === "super_admin") {
       req.orgMemberPermissions = {
         manageEmployees: true,
         viewCardsHideKeys: true,

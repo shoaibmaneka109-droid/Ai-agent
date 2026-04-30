@@ -110,7 +110,7 @@ export function IntegrationSettingsPage() {
       const me = await apiJson<{ user?: { organizationRole?: string | null } }>("/api/v1/auth/me");
       const role = me.user?.organizationRole ?? null;
       setMeRole(role);
-      if (role !== "owner" && role !== "admin") {
+      if (role !== "owner" && role !== "admin" && role !== "super_admin") {
         setRows([]);
         setLoadErr(
           role === "sub_admin"
@@ -167,7 +167,7 @@ export function IntegrationSettingsPage() {
         <p style={{ color: "#b91c1c" }}>Missing organization id—sign in again.</p>
       )}
       {loadErr ? <p style={{ color: "#b91c1c" }}>{loadErr}</p> : null}
-      {meRole === "owner" || meRole === "admin" ? (
+      {meRole === "owner" || meRole === "admin" || meRole === "super_admin" ? (
         <>
       <p style={{ fontSize: 13 }}>
         Saved rows:{" "}

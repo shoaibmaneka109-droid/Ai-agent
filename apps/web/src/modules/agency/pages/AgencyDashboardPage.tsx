@@ -11,9 +11,10 @@ interface VirtualCard {
   frozen?: boolean;
   fullTimeFreeze?: boolean;
   isAutoFreezeEnabled?: boolean;
+  cardKind?: string;
 }
 
-type OrgRole = "owner" | "admin" | "sub_admin" | "member";
+type OrgRole = "owner" | "admin" | "super_admin" | "sub_admin" | "member";
 
 interface MePermissions {
   manageEmployees: boolean;
@@ -47,7 +48,8 @@ export function AgencyDashboardPage() {
   const [permissions, setPermissions] = useState<MePermissions | null>(null);
   const [meLoading, setMeLoading] = useState(true);
 
-  const isMainAdmin = organizationRole === "owner" || organizationRole === "admin";
+  const isMainAdmin = organizationRole === "owner" || organizationRole === "admin" || organizationRole === "super_admin";
+  const isSuperAdmin = organizationRole === "super_admin";
   const isSubAdmin = organizationRole === "sub_admin";
   const canDashboard = isMainAdmin || isSubAdmin;
   const permA = permissions?.manageEmployees ?? false;
@@ -74,8 +76,10 @@ export function AgencyDashboardPage() {
 
   const [newCardRef, setNewCardRef] = useState("");
   const [newCardLast4, setNewCardLast4] = useState("");
+  const [newCardAsMaster, setNewCardAsMaster] = useState(false);
   const [newCardLabel, setNewCardLabel] = useState("");
 
+  const [recallAmountByUser, setRecallAmountByUser] = useState<Record<string, string>>({});
   const [empEmail, setEmpEmail] = useState("");
   const [empPassword, setEmpPassword] = useState("");
   const [empCardId, setEmpCardId] = useState("");
@@ -231,15 +235,43 @@ export function AgencyDashboardPage() {
           externalRef: newCardRef,
           last4: newCardLast4,
           label: newCardLabel || undefined,
+          cardKind: newCardAsMaster && isSuperAdmin ? "MASTER_CARD" : "STANDARD",
         }),
       });
       setNewCardRef("");
       setNewCardLast4("");
       setNewCardLabel("");
+      setNewCardAsMaster(false);
       await loadDashboard();
     } catch (err: unknown) {
       const e = err as { body?: { error?: string } };
       setError(e.body?.error ?? "Create card failed");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function recallFromEmployee(userId: string, fromCardId: string | undefined) {
+    if (!orgId || !fromCardId) return;
+    const raw = recallAmountByUser[userId] ?? "0";
+    const cents = Math.floor(Number(raw));
+    if (!Number.isFinite(cents) || cents <= 0) {
+      setError("Enter a valid recall amount (cents) for this employee.");
+      return;
+    }
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiJson<{ ok?: boolean; message?: string }>(`/api/v1/organizations/${orgId}/fund-recall`, {
+        method: "POST",
+        body: JSON.stringify({ fromCardId, amountCents: cents }),
+      });
+      setRecallAmountByUser((prev) => ({ ...prev, [userId]: "" }));
+      await loadDashboard();
+      setCardFrozenToast(res.message ?? "Fund recall completed.");
+    } catch (err: unknown) {
+      const e = err as { status?: number; body?: { error?: string; message?: string } };
+      setError(e.body?.error ?? e.body?.message ?? "Fund recall failed");
     } finally {
       setBusy(false);
     }
@@ -658,6 +690,12 @@ export function AgencyDashboardPage() {
                 style={{ padding: 8 }}
               />
               <input placeholder="Label (optional)" value={newCardLabel} onChange={(e) => setNewCardLabel(e.target.value)} style={{ padding: 8 }} />
+              {isSuperAdmin ? (
+                <label style={{ fontSize: 14, display: "flex", alignItems: "center", gap: 8 }}>
+                  <input type="checkbox" checked={newCardAsMaster} onChange={(e) => setNewCardAsMaster(e.target.checked)} />
+                  Register as MASTER_CARD (hidden from all except SUPER_ADMIN)
+                </label>
+              ) : null}
               <button type="submit" disabled={busy}>
                 Register card
               </button>
@@ -676,6 +714,9 @@ export function AgencyDashboardPage() {
                 ) : null}
                 {c.isAutoFreezeEnabled ? (
                   <span style={{ color: "#0369a1", marginLeft: 8 }}>Auto-freeze on pay</span>
+                ) : null}
+                {c.cardKind === "MASTER_CARD" ? (
+                  <span style={{ color: "#7c3aed", marginLeft: 8, fontWeight: 600 }}>MASTER</span>
                 ) : null}
                 {permB ? (
                   <span style={{ marginLeft: 12, display: "inline-flex", flexWrap: "wrap", gap: 8, alignItems: "center" }}>
@@ -718,20 +759,25 @@ export function AgencyDashboardPage() {
                 <th>Card</th>
                 <th>VPS IP</th>
                 <th>Pay auth until</th>
+                {isSuperAdmin ? <th>Recall funds</th> : null}
                 <th></th>
               </tr>
             </thead>
             <tbody>
-              {employees.map((emp) => (
-                <EmployeeMappingRow
-                  key={emp.userId}
-                  emp={emp}
-                  cards={cards}
-                  busy={busy}
-                  onSave={(cardId, ip) => void updateEmployeeMapping(emp.userId, cardId, ip)}
-                  onSetPayAuth={(untilIso) => void setPaymentsAuthorization(emp.userId, untilIso)}
-                />
-              ))}
+            {employees.map((emp) => (
+              <EmployeeMappingRow
+                key={emp.userId}
+                emp={emp}
+                cards={cards}
+                busy={busy}
+                isSuperAdmin={isSuperAdmin}
+                recallAmount={recallAmountByUser[emp.userId] ?? ""}
+                onRecallAmountChange={(v) => setRecallAmountByUser((p) => ({ ...p, [emp.userId]: v }))}
+                onRecallFunds={() => void recallFromEmployee(emp.userId, emp.virtualCard?.id)}
+                onSave={(cardId, ip) => void updateEmployeeMapping(emp.userId, cardId, ip)}
+                onSetPayAuth={(untilIso) => void setPaymentsAuthorization(emp.userId, untilIso)}
+              />
+            ))}
             </tbody>
           </table>
 
@@ -742,7 +788,9 @@ export function AgencyDashboardPage() {
             <label>
               Virtual card
               <select value={empCardId} onChange={(e) => setEmpCardId(e.target.value)} required style={{ width: "100%", marginTop: 4, padding: 8 }}>
-                {cards.map((c) => (
+                {cards
+                  .filter((c) => c.cardKind !== "MASTER_CARD")
+                  .map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.externalRef} (…{c.last4})
                   </option>
@@ -770,7 +818,7 @@ export function AgencyDashboardPage() {
             <label>
               From card
               <select value={ftCardId} onChange={(e) => setFtCardId(e.target.value)} style={{ width: "100%", marginTop: 4, padding: 8 }}>
-                {cards.map((c) => (
+                {cards.filter((c) => c.cardKind !== "MASTER_CARD").map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.externalRef} (…{c.last4})
                   </option>
@@ -808,6 +856,10 @@ function EmployeeMappingRow(props: {
   emp: EmployeeRow;
   cards: VirtualCard[];
   busy: boolean;
+  isSuperAdmin: boolean;
+  recallAmount: string;
+  onRecallAmountChange: (v: string) => void;
+  onRecallFunds: () => void;
   onSave: (virtualCardId: string, ip: string) => void;
   onSetPayAuth: (untilIso: string | null) => void;
 }) {
@@ -847,7 +899,9 @@ function EmployeeMappingRow(props: {
       <td style={{ padding: "8px 4px" }}>{props.emp.email}</td>
       <td>
         <select value={cardId} onChange={(e) => setCardId(e.target.value)} style={{ maxWidth: 200 }}>
-          {props.cards.map((c) => (
+          {props.cards
+            .filter((c) => c.cardKind !== "MASTER_CARD")
+            .map((c) => (
             <option key={c.id} value={c.id}>
               …{c.last4}
               {c.frozen ? " (frozen)" : ""}
@@ -877,6 +931,21 @@ function EmployeeMappingRow(props: {
           <div style={{ color: "#64748b", marginTop: 4 }}>API: {props.emp.paymentsAuthorizedUntil}</div>
         ) : null}
       </td>
+      {props.isSuperAdmin ? (
+        <td style={{ fontSize: 12, verticalAlign: "top" }}>
+          <input
+            type="number"
+            min={1}
+            placeholder="cents"
+            value={props.recallAmount}
+            onChange={(e) => props.onRecallAmountChange(e.target.value)}
+            style={{ width: 90, padding: 4 }}
+          />
+          <button type="button" disabled={props.busy} style={{ marginTop: 4, display: "block" }} onClick={props.onRecallFunds}>
+            Recall funds
+          </button>
+        </td>
+      ) : null}
       <td>
         <button type="button" disabled={props.busy} onClick={() => props.onSave(cardId, ip)}>
           Save

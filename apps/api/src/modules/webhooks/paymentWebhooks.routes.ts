@@ -52,6 +52,10 @@ async function processStripeWebhook(req: Request, res: Response, organizationId:
     res.json({ received: true, skipped: "auto_freeze_disabled" });
     return;
   }
+  if (card.card_kind === "MASTER_CARD") {
+    res.json({ received: true, skipped: "master_card_excluded" });
+    return;
+  }
   const apiSecret = await getDecryptedCredential(organizationId, "stripe", "api_secret");
   if (!apiSecret) {
     res.status(503).json({ error: "Stripe API secret not configured" });
@@ -114,6 +118,10 @@ async function processAirwallexWebhook(req: Request, res: Response, organization
   }
   if (!card.is_auto_freeze_enabled) {
     res.json({ received: true, skipped: "auto_freeze_disabled" });
+    return;
+  }
+  if (card.card_kind === "MASTER_CARD") {
+    res.json({ received: true, skipped: "master_card_excluded" });
     return;
   }
   const apiJson = await getDecryptedCredential(organizationId, "airwallex", "api_secret");

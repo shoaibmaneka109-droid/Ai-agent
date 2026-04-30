@@ -7,7 +7,7 @@ declare global {
       tenantId?: string;
       auth?: AuthContext;
       orgBilling?: OrgBillingState;
-      orgMemberRole?: "owner" | "admin" | "sub_admin" | "member";
+      orgMemberRole?: "owner" | "admin" | "super_admin" | "sub_admin" | "member";
       /** Effective flags: owner/admin always all true; sub_admin from DB; member all false */
       orgMemberPermissions?: {
         manageEmployees: boolean;

@@ -17,7 +17,7 @@ export async function countAgencyEmployees(organizationId: string): Promise<numb
 export function assertAgencyTrialEmployeeCap(
   billing: OrgBillingState,
   currentEmployeeCount: number,
-  roleBeingAdded: "owner" | "admin" | "member"
+  roleBeingAdded: "owner" | "admin" | "super_admin" | "sub_admin" | "member"
 ): void {
   if (billing.organizationKind !== "agency") return;
   if (roleBeingAdded !== "member") return;

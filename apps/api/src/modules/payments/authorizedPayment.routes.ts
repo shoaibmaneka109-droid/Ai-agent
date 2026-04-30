@@ -47,8 +47,7 @@ r.post(
                 m.payments_authorized_until AS auth_until,
                 (vc.card_frozen_at IS NOT NULL OR vc.full_time_freeze OR o.emergency_lockdown_at IS NOT NULL) AS frozen
          FROM organization_members m
-         JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
-         JOIN organizations o ON o.id = m.organization_id
+         JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id AND vc.card_kind = 'STANDARD'
          WHERE m.organization_id = $1 AND m.user_id = $2`,
         [req.tenantId, req.auth!.userId]
       );

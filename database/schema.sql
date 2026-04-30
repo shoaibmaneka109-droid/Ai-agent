@@ -43,7 +43,7 @@ CREATE TABLE users (
 CREATE TABLE organization_members (
   organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
   user_id         UUID NOT NULL REFERENCES users (id) ON DELETE CASCADE,
-  role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'sub_admin', 'member')),
+  role            TEXT NOT NULL DEFAULT 'member' CHECK (role IN ('owner', 'admin', 'super_admin', 'sub_admin', 'member')),
   invited_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
   joined_at       TIMESTAMPTZ,
   virtual_card_id UUID,
@@ -67,11 +67,15 @@ CREATE TABLE organization_virtual_cards (
   card_frozen_at   TIMESTAMPTZ,
   full_time_freeze BOOLEAN NOT NULL DEFAULT false,
   is_auto_freeze_enabled BOOLEAN NOT NULL DEFAULT false,
+  card_kind        TEXT NOT NULL DEFAULT 'STANDARD' CHECK (card_kind IN ('STANDARD', 'MASTER_CARD')),
   created_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
   UNIQUE (organization_id, external_ref)
 );
 
 CREATE INDEX idx_org_virtual_cards_org ON organization_virtual_cards (organization_id);
+
+CREATE UNIQUE INDEX idx_one_master_card_per_org ON organization_virtual_cards (organization_id)
+  WHERE card_kind = 'MASTER_CARD';
 
 ALTER TABLE organization_members
   ADD CONSTRAINT organization_members_virtual_card_id_fkey
@@ -91,6 +95,18 @@ CREATE TABLE organization_card_fund_transfers (
 );
 
 CREATE INDEX idx_org_card_fund_transfers_org ON organization_card_fund_transfers (organization_id);
+
+CREATE TABLE audit_logs (
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id   UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
+  action            TEXT NOT NULL,
+  actor_user_id     UUID REFERENCES users (id) ON DELETE SET NULL,
+  payload           JSONB NOT NULL DEFAULT '{}',
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX idx_audit_logs_org ON audit_logs (organization_id);
+CREATE INDEX idx_audit_logs_action ON audit_logs (action);
 
 CREATE TABLE organization_checkout_allowed_merchants (
   id                 UUID PRIMARY KEY DEFAULT gen_random_uuid(),

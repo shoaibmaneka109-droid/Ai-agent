@@ -13,6 +13,8 @@ import {
   requireManageEmployeesOrViewCards,
 } from "../../middleware/requireOrgPermissions.js";
 import { env } from "../../config/env.js";
+import { sqlExcludeMasterCardUnlessSuperAdmin, recallFunds } from "../../lib/fundRecall.js";
+import { requireSuperAdmin } from "../../middleware/requireOrgPermissions.js";
 
 const r = Router({ mergeParams: true });
 
@@ -62,6 +64,7 @@ r.get(
          JOIN users u ON u.id = m.user_id
          LEFT JOIN organization_virtual_cards vc ON vc.id = m.virtual_card_id
          WHERE m.organization_id = $1 AND m.role = 'member'
+           AND (vc.id IS NULL OR vc.card_kind IS DISTINCT FROM 'MASTER_CARD')
          ORDER BY u.email`,
         [req.tenantId]
       );
@@ -110,7 +113,17 @@ r.post(
   requireViewCardsAdmin,
   async (req: Request, res: Response) => {
     if (!assertOrgMatch(req, res)) return;
-    const body = req.body as { externalRef?: string; last4?: string; label?: string };
+    const body = req.body as {
+      externalRef?: string;
+      last4?: string;
+      label?: string;
+      cardKind?: "STANDARD" | "MASTER_CARD";
+    };
+    if (body.cardKind === "MASTER_CARD" && req.orgMemberRole !== "super_admin") {
+      res.status(403).json({ error: "Only SUPER_ADMIN can create or manage MASTER_CARD" });
+      return;
+    }
+    const cardKind = body.cardKind === "MASTER_CARD" ? "MASTER_CARD" : "STANDARD";
     if (!body.externalRef?.trim() || !body.last4?.trim()) {
       res.status(400).json({ error: "externalRef and last4 required" });
       return;
@@ -123,10 +136,10 @@ r.post(
     try {
       const pool = getPool();
       const { rows } = await pool.query<{ id: string }>(
-        `INSERT INTO organization_virtual_cards (organization_id, external_ref, last4, label)
-         VALUES ($1, $2, $3, $4)
+        `INSERT INTO organization_virtual_cards (organization_id, external_ref, last4, label, card_kind)
+         VALUES ($1, $2, $3, $4, $5)
          RETURNING id`,
-        [req.tenantId, body.externalRef.trim(), last4, body.label?.trim() ?? null]
+        [req.tenantId, body.externalRef.trim(), last4, body.label?.trim() ?? null, cardKind]
       );
       res.status(201).json({ id: rows[0]!.id });
     } catch (e: unknown) {
@@ -159,11 +172,13 @@ r.get(
         card_frozen_at: Date | null;
         full_time_freeze: boolean;
         is_auto_freeze_enabled: boolean;
+        card_kind: string;
       }>(
-        `SELECT id, external_ref, last4, label, card_frozen_at, full_time_freeze, is_auto_freeze_enabled
+        `SELECT id, external_ref, last4, label, card_frozen_at, full_time_freeze, is_auto_freeze_enabled, card_kind
          FROM organization_virtual_cards
-         WHERE organization_id = $1 ORDER BY created_at`,
-        [req.tenantId]
+         WHERE organization_id = $1 AND (${sqlExcludeMasterCardUnlessSuperAdmin("$2")})
+         ORDER BY created_at`,
+        [req.tenantId, req.orgMemberRole]
       );
       res.json({
         virtualCards: rows.map((v) => ({
@@ -174,6 +189,7 @@ r.get(
           frozen: Boolean(v.card_frozen_at),
           fullTimeFreeze: v.full_time_freeze,
           isAutoFreezeEnabled: v.is_auto_freeze_enabled,
+          cardKind: v.card_kind,
         })),
       });
     } catch (e) {
@@ -215,7 +231,7 @@ r.patch(
          FROM organization_virtual_cards vc
          WHERE m.organization_id = $1 AND m.user_id = $2::uuid
            AND m.role = 'member'
-           AND vc.id = $3::uuid AND vc.organization_id = $1`,
+           AND vc.id = $3::uuid AND vc.organization_id = $1 AND vc.card_kind = 'STANDARD'`,
         [req.tenantId, userId, body.virtualCardId.trim(), body.allowedVpsIp.trim()]
       );
       if (rowCount === 0) {
@@ -255,8 +271,9 @@ r.post(
       const { rowCount } = await pool.query(
         `UPDATE organization_virtual_cards
          SET card_frozen_at = $3
-         WHERE id = $1::uuid AND organization_id = $2`,
-        [cardId, req.tenantId, frozenAt]
+         WHERE id = $1::uuid AND organization_id = $2
+           AND (card_kind = 'STANDARD' OR $4 = 'super_admin')`,
+        [cardId, req.tenantId, frozenAt, req.orgMemberRole]
       );
       if (rowCount === 0) {
         res.status(404).json({ error: "Virtual card not found in this organization" });
@@ -293,8 +310,9 @@ r.patch(
       const pool = getPool();
       const { rowCount } = await pool.query(
         `UPDATE organization_virtual_cards SET full_time_freeze = $3
-         WHERE id = $1::uuid AND organization_id = $2`,
-        [cardId, req.tenantId, body.fullTimeFreeze]
+         WHERE id = $1::uuid AND organization_id = $2
+           AND (card_kind = 'STANDARD' OR $4 = 'super_admin')`,
+        [cardId, req.tenantId, body.fullTimeFreeze, req.orgMemberRole]
       );
       if (rowCount === 0) {
         res.status(404).json({ error: "Virtual card not found in this organization" });
@@ -331,8 +349,9 @@ r.patch(
       const pool = getPool();
       const { rowCount } = await pool.query(
         `UPDATE organization_virtual_cards SET is_auto_freeze_enabled = $3
-         WHERE id = $1::uuid AND organization_id = $2`,
-        [cardId, req.tenantId, body.isAutoFreezeEnabled]
+         WHERE id = $1::uuid AND organization_id = $2
+           AND (card_kind = 'STANDARD' OR $4 = 'super_admin')`,
+        [cardId, req.tenantId, body.isAutoFreezeEnabled, req.orgMemberRole]
       );
       if (rowCount === 0) {
         res.status(404).json({ error: "Virtual card not found in this organization" });
@@ -343,6 +362,39 @@ r.patch(
       if (env.nodeEnv !== "production") console.error(e);
       res.status(500).json({ error: "Failed to update auto-freeze flag" });
     }
+  }
+);
+
+/** SUPER_ADMIN only: recall funds from employee card toward master / platform (audited). */
+r.post(
+  "/fund-recall",
+  requireAuth,
+  requireTenantMembership,
+  requireSuperAdmin,
+  async (req: Request, res: Response) => {
+    if (!assertOrgMatch(req, res)) return;
+    const body = req.body as { fromCardId?: string; amountCents?: unknown; masterCardId?: string | null };
+    if (!body.fromCardId?.trim()) {
+      res.status(400).json({ error: "fromCardId required" });
+      return;
+    }
+    const amount = typeof body.amountCents === "number" ? body.amountCents : Number(body.amountCents);
+    if (!Number.isFinite(amount) || amount <= 0) {
+      res.status(400).json({ error: "amountCents must be a positive number" });
+      return;
+    }
+    const result = await recallFunds({
+      organizationId: req.tenantId!,
+      actorUserId: req.auth!.userId,
+      fromCardId: body.fromCardId.trim(),
+      amountCents: Math.floor(amount),
+      masterCardId: body.masterCardId?.trim() ?? null,
+    });
+    res.status(result.statusCode).json({
+      ok: result.ok,
+      message: result.message,
+      simulated: result.simulated,
+    });
   }
 );
 
@@ -586,7 +638,7 @@ r.post(
     try {
       const pool = getPool();
       const cardCheck = await pool.query<{ id: string }>(
-        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2`,
+        `SELECT id FROM organization_virtual_cards WHERE id = $1::uuid AND organization_id = $2 AND card_kind = 'STANDARD'`,
         [body.fromVirtualCardId.trim(), req.tenantId]
       );
       if (!cardCheck.rows[0]) {

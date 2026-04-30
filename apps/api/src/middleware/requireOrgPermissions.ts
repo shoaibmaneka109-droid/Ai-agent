@@ -7,11 +7,19 @@ function deny(res: Response, code: string, message: string): void {
 /** Owner or main admin only — integrations, API keys, creating sub-admins. */
 export function requireMainAgencyAdmin(req: Request, res: Response, next: NextFunction): void {
   const role = req.orgMemberRole;
-  if (role === "owner" || role === "admin") {
+  if (role === "owner" || role === "admin" || role === "super_admin") {
     next();
     return;
   }
-  deny(res, "MAIN_ADMIN_REQUIRED", "Main admin (owner or admin) role required");
+  deny(res, "MAIN_ADMIN_REQUIRED", "Main admin (owner, admin, or super admin) role required");
+}
+
+export function requireSuperAdmin(req: Request, res: Response, next: NextFunction): void {
+  if (req.orgMemberRole === "super_admin") {
+    next();
+    return;
+  }
+  deny(res, "SUPER_ADMIN_REQUIRED", "Super admin role required");
 }
 
 /** Permission A: manage employees (and related employee fields). */

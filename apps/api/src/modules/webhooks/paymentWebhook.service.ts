@@ -34,6 +34,7 @@ export async function findVirtualCardById(
   external_ref: string;
   last4: string;
   is_auto_freeze_enabled: boolean;
+  card_kind: string;
 } | null> {
   const pool = getPool();
   const { rows } = await pool.query<{
@@ -42,8 +43,9 @@ export async function findVirtualCardById(
     external_ref: string;
     last4: string;
     is_auto_freeze_enabled: boolean;
+    card_kind: string;
   }>(
-    `SELECT id, organization_id, external_ref, last4, is_auto_freeze_enabled
+    `SELECT id, organization_id, external_ref, last4, is_auto_freeze_enabled, card_kind
      FROM organization_virtual_cards
      WHERE id = $1::uuid`,
     [virtualCardId]

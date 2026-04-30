@@ -36,14 +36,14 @@ export async function findUserById(id: string): Promise<{
 export async function findOrgMembershipRole(
   organizationId: string,
   userId: string
-): Promise<"owner" | "admin" | "sub_admin" | "member" | null> {
+): Promise<"owner" | "admin" | "super_admin" | "sub_admin" | "member" | null> {
   const pool = getPool();
   const { rows } = await pool.query<{ role: string }>(
     `SELECT role FROM organization_members WHERE organization_id = $1 AND user_id = $2`,
     [organizationId, userId]
   );
   const r = rows[0]?.role;
-  if (r === "owner" || r === "admin" || r === "sub_admin" || r === "member") return r;
+  if (r === "owner" || r === "admin" || r === "super_admin" || r === "sub_admin" || r === "member") return r;
   return null;
 }
 
@@ -51,7 +51,7 @@ export async function findOrgMembershipForMe(
   organizationId: string,
   userId: string
 ): Promise<{
-  role: "owner" | "admin" | "sub_admin" | "member";
+  role: "owner" | "admin" | "super_admin" | "sub_admin" | "member";
   canManageEmployees: boolean;
   canViewCardsHideKeys: boolean;
   canCardAdminFundTransfer: boolean;
@@ -70,9 +70,10 @@ export async function findOrgMembershipForMe(
   const row = rows[0];
   if (!row) return null;
   const role = row.role;
-  if (role !== "owner" && role !== "admin" && role !== "sub_admin" && role !== "member") return null;
-  const r = role as "owner" | "admin" | "sub_admin" | "member";
-  if (r === "owner" || r === "admin") {
+  if (role !== "owner" && role !== "admin" && role !== "super_admin" && role !== "sub_admin" && role !== "member")
+    return null;
+  const r = role as "owner" | "admin" | "super_admin" | "sub_admin" | "member";
+  if (r === "owner" || r === "admin" || r === "super_admin") {
     return {
       role: r,
       canManageEmployees: true,
@@ -191,7 +192,7 @@ export async function registerAgencyAdmin(input: {
 
     await client.query(
       `INSERT INTO organization_members (organization_id, user_id, role, joined_at)
-       VALUES ($1, $2, 'admin', now())`,
+       VALUES ($1, $2, 'super_admin', now())`,
       [organizationId, userId]
     );
 
