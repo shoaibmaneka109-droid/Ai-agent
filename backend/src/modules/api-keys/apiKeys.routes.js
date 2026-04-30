@@ -7,9 +7,12 @@ const { requireFullAccess } = require('../../shared/middleware/featureLock');
 const validate = require('../../shared/middleware/validate');
 const { sendSuccess, sendCreated } = require('../../shared/utils/apiResponse');
 
+const ALL_PROVIDERS = ['stripe', 'airwallex', 'wise', 'custom'];
+
 const router = Router({ mergeParams: true });
 router.use(authenticate, tenantGuard);
 
+// ─── List ─────────────────────────────────────────────────────────────────────
 // GET /organizations/:organizationId/api-keys
 router.get('/', async (req, res, next) => {
   try {
@@ -20,30 +23,35 @@ router.get('/', async (req, res, next) => {
   }
 });
 
+// ─── Create ───────────────────────────────────────────────────────────────────
 // POST /organizations/:organizationId/api-keys
-// Creating/modifying API keys (Stripe/Airwallex) is locked during hibernation
+// Self-service: any admin/owner can add their own credentials.
+// Supports optional immediate connection test via testAfterCreate flag.
 router.post(
   '/',
   requireFullAccess,
   authorize(['owner', 'admin']),
   validate([
-    body('provider').isIn(['stripe', 'airwallex', 'custom']),
+    body('provider').isIn(ALL_PROVIDERS).withMessage(`provider must be one of: ${ALL_PROVIDERS.join(', ')}`),
     body('label').trim().notEmpty().isLength({ max: 100 }),
     body('secretKey').notEmpty().withMessage('secretKey is required'),
     body('publicKey').optional().isString(),
     body('webhookSecret').optional().isString(),
+    body('extraConfig').optional().isObject(),
+    body('testAfterCreate').optional().isBoolean(),
   ]),
   async (req, res, next) => {
     try {
-      const key = await apiKeysService.createApiKey(req.user.organizationId, req.body);
-      return sendCreated(res, { key });
+      const result = await apiKeysService.createApiKey(req.user.organizationId, req.body);
+      return sendCreated(res, { key: result });
     } catch (err) {
       next(err);
     }
   }
 );
 
-// GET /organizations/:organizationId/api-keys/:keyId — returns masked view only
+// ─── Get one (masked) ─────────────────────────────────────────────────────────
+// GET /organizations/:organizationId/api-keys/:keyId
 router.get(
   '/:keyId',
   validate([param('keyId').isUUID()]),
@@ -53,7 +61,7 @@ router.get(
         req.user.organizationId,
         req.params.keyId
       );
-      // Strip plaintext secrets — only return masked versions to the client
+      // Strip plaintext — only masked values + metadata go to client
       const { secretKey, webhookSecret, ...safeKey } = key;
       return sendSuccess(res, { key: safeKey });
     } catch (err) {
@@ -62,6 +70,58 @@ router.get(
   }
 );
 
+// ─── Update metadata ──────────────────────────────────────────────────────────
+// PATCH /organizations/:organizationId/api-keys/:keyId/meta
+// Updates label, publicKey, extraConfig — does NOT touch encrypted secrets.
+router.patch(
+  '/:keyId/meta',
+  authorize(['owner', 'admin']),
+  validate([
+    param('keyId').isUUID(),
+    body('label').optional().trim().notEmpty().isLength({ max: 100 }),
+    body('publicKey').optional().isString(),
+    body('extraConfig').optional().isObject(),
+  ]),
+  async (req, res, next) => {
+    try {
+      const key = await apiKeysService.updateApiKeyMeta(
+        req.user.organizationId,
+        req.params.keyId,
+        req.body
+      );
+      return sendSuccess(res, { key });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Connection Test ──────────────────────────────────────────────────────────
+// POST /organizations/:organizationId/api-keys/:keyId/test
+// Decrypts the stored credentials and pings the provider's API.
+// Result is persisted to the key record and returned to the client.
+router.post(
+  '/:keyId/test',
+  authorize(['owner', 'admin']),
+  validate([param('keyId').isUUID()]),
+  async (req, res, next) => {
+    try {
+      const testResult = await apiKeysService.testApiKeyConnection(
+        req.user.organizationId,
+        req.params.keyId
+      );
+      const statusCode = testResult.ok ? 200 : 422;
+      return res.status(statusCode).json({
+        success: testResult.ok,
+        data: { testResult },
+      });
+    } catch (err) {
+      next(err);
+    }
+  }
+);
+
+// ─── Rotate secrets ───────────────────────────────────────────────────────────
 // PUT /organizations/:organizationId/api-keys/:keyId/rotate
 router.put(
   '/:keyId/rotate',
@@ -86,6 +146,7 @@ router.put(
   }
 );
 
+// ─── Toggle active state ──────────────────────────────────────────────────────
 // PATCH /organizations/:organizationId/api-keys/:keyId/toggle
 router.patch(
   '/:keyId/toggle',
@@ -108,6 +169,7 @@ router.patch(
   }
 );
 
+// ─── Delete ───────────────────────────────────────────────────────────────────
 // DELETE /organizations/:organizationId/api-keys/:keyId
 router.delete(
   '/:keyId',

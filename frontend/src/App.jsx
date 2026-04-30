@@ -14,6 +14,7 @@ import ApiKeysPage from './pages/ApiKeysPage';
 import TeamPage from './pages/TeamPage';
 import SettingsPage from './pages/SettingsPage';
 import BillingPage from './pages/BillingPage';
+import IntegrationsPage from './pages/IntegrationsPage';
 
 const App = () => (
   <Provider store={store}>
@@ -29,6 +30,7 @@ const App = () => (
             <Route path="/dashboard" element={<DashboardPage />} />
             <Route path="/payments" element={<PaymentsPage />} />
             <Route path="/api-keys" element={<ApiKeysPage />} />
+            <Route path="/integrations" element={<IntegrationsPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/settings/billing" element={<BillingPage />} />

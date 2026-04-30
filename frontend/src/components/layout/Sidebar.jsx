@@ -7,7 +7,8 @@ import TrialProgress from '../common/TrialProgress';
 const navItems = [
   { to: '/dashboard', label: 'Dashboard', icon: '▦' },
   { to: '/payments', label: 'Payments', icon: '💳' },
-  { to: '/api-keys', label: 'API Keys', icon: '🔑' },
+  { to: '/integrations', label: 'Integrations', icon: '🔌' },
+  { to: '/api-keys', label: 'API Keys (Legacy)', icon: '🔑' },
   { to: '/team', label: 'Team', icon: '👥' },
   { to: '/settings/billing', label: 'Billing', icon: '📋' },
   { to: '/settings', label: 'Settings', icon: '⚙️' },
