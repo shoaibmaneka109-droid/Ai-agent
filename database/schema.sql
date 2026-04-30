@@ -8,8 +8,10 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 -- Application roles: Solo (individual) vs Agency (company-style multi-user org)
 CREATE TYPE user_type AS ENUM ('solo', 'agency');
 
--- Payment / payout providers whose API secrets we store encrypted per tenant
-CREATE TYPE credential_provider AS ENUM ('stripe', 'airwallex');
+-- Card issuing / payouts: API + optional webhook signing secrets per tenant
+CREATE TYPE credential_provider AS ENUM ('stripe', 'airwallex', 'wise');
+
+CREATE TYPE credential_kind AS ENUM ('api_secret', 'webhook_secret');
 
 -- Solo workspace vs company (agency) org — drives trial length and employee caps
 CREATE TYPE organization_kind AS ENUM ('solo_workspace', 'agency');
@@ -50,17 +52,18 @@ CREATE INDEX idx_organization_members_user ON organization_members (user_id);
 
 -- Encrypted at rest: ciphertext + IV + auth tag (AES-256-GCM); never store plaintext keys
 CREATE TABLE organization_credentials (
-  id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID NOT NULL REFERENCES organizations (id) ON DELETE CASCADE,
-  provider        credential_provider NOT NULL,
-  label           TEXT,
-  ciphertext      BYTEA NOT NULL,
-  iv              BYTEA NOT NULL,
-  auth_tag        BYTEA NOT NULL,
-  key_version     SMALLINT NOT NULL DEFAULT 1,
-  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
-  UNIQUE (organization_id, provider)
+  provider          credential_provider NOT NULL,
+  credential_kind   credential_kind NOT NULL DEFAULT 'api_secret',
+  label             TEXT,
+  ciphertext        BYTEA NOT NULL,
+  iv                BYTEA NOT NULL,
+  auth_tag          BYTEA NOT NULL,
+  key_version       SMALLINT NOT NULL DEFAULT 1,
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (organization_id, provider, credential_kind)
 );
 
 CREATE INDEX idx_org_credentials_org ON organization_credentials (organization_id);

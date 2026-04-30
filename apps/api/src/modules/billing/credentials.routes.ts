@@ -10,8 +10,8 @@ const r = Router();
 
 r.post("/:provider", requireAuth, requireTenantMembership, requireFullSubscription, async (req: Request, res: Response) => {
   const provider = req.params.provider;
-  if (provider !== "stripe" && provider !== "airwallex") {
-    res.status(400).json({ error: "provider must be stripe or airwallex" });
+  if (provider !== "stripe" && provider !== "airwallex" && provider !== "wise") {
+    res.status(400).json({ error: "provider must be stripe, airwallex, or wise" });
     return;
   }
   const body = req.body as { secret?: string; label?: string };
@@ -23,6 +23,7 @@ r.post("/:provider", requireAuth, requireTenantMembership, requireFullSubscripti
     await upsertEncryptedCredential({
       organizationId: req.tenantId!,
       provider,
+      kind: "api_secret",
       plaintextSecret: body.secret,
       label: body.label ?? null,
     });

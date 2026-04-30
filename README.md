@@ -4,10 +4,10 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 
 ## Layout
 
-- **`apps/api`** — Express API: `config/`, `middleware/` (JWT, tenant membership, subscription gates), `lib/crypto`, `lib/jwt`, `lib/billing`, `modules/*` (auth, organizations, billing/credentials, autofill).
+- **`apps/api`** — Express API: `config/`, `middleware/` (JWT, tenant membership, subscription gates), `lib/crypto`, `lib/jwt`, `lib/billing`, `modules/*` (auth, organizations, billing/credentials, integrations, autofill).
 - **`apps/web`** — React (Vite): `app/`, `modules/solo`, `modules/agency`, `shared/`.
-- **`packages/shared`** — Types and **billing helpers** (`computeOrgBillingState`, trial constants).
-- **`database/`** — SQL schema.
+- **`packages/shared`** — Types, billing helpers, **provider connection tests** (`testStripeConnection`, `testAirwallexConnection`, `testWiseConnection`).
+- **`database/`** — SQL schema and migrations.
 
 ## Authentication (JWT)
 
@@ -20,7 +20,7 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 ## Trials and data hibernation
 
 - **Full access** (`integrationsUnlocked`): trial not expired **or** paid period active (`subscription_ends_at` in the future).
-- **Hibernation**: trial and paid period both ended → user can still authenticate and call **`/auth/me`**, but routes that use **`requireFullSubscription`** return **402** with `code: "HIBERNATION"` (e.g. **`POST /api/v1/credentials/:provider`**, **`POST /api/v1/autofill/preview`**).
+- **Hibernation**: trial and paid period both ended → user can still authenticate and call **`/auth/me`**, but routes that use **`requireFullSubscription`** return **402** with `code: "HIBERNATION"` (e.g. **`POST /api/v1/credentials/:provider`**, **`POST /api/v1/autofill/preview`**, **integration save/test**).
 - Shared logic: `packages/shared/src/billing.ts` — `computeOrgBillingState`.
 
 ## Agency employees during trial
@@ -28,12 +28,30 @@ Multi-tenant SaaS scaffold: **Node.js/Express** (`apps/api`), **React** (`apps/w
 - While the org is on **agency trial** (trial active and not on paid plan), at most **9** users with role **`member`** may exist (`AGENCY_TRIAL_MAX_EMPLOYEES`).
 - **`POST /api/v1/organizations/:orgId/members/employees`** — admin/owner only; headers: **`Authorization: Bearer <token>`**, **`X-Organization-Id: <same org uuid>`**.
 
-## Encrypted API keys
+## Admin integrations (self-service)
 
-- **`POST /api/v1/credentials/:provider`** (`stripe` | `airwallex`) — requires JWT, tenant membership, and **active trial or subscription** (hibernation blocks writes).
+Tenants configure their own **Stripe**, **Airwallex**, and **Wise** API keys and **webhook secrets**; values are **encrypted (AES-256-GCM)** before insert into **`organization_credentials`** (`credential_kind`: `api_secret` | `webhook_secret`).
+
+- **`GET /api/v1/integrations`** — admin/owner; lists configured `(provider, kind)` rows (no secret values).
+- **`PUT /api/v1/integrations/:provider`** — admin/owner; **requires active trial or subscription**. Body shapes:
+  - **Stripe**: `{ "apiSecret": "sk_...", "webhookSecret": "whsec_..." }` (webhook optional).
+  - **Airwallex**: `{ "clientId", "apiKey", "baseUrl"?, "webhookSecret"? }` — API pair stored as encrypted JSON.
+  - **Wise**: `{ "apiSecret": "<token>", "live": boolean, "webhookSecret"? }` — token + environment stored as encrypted JSON.
+- **Connection test**
+  - **`POST /api/v1/integrations/:provider/connection-test`** — admin/owner; body same as save (tests **without** persisting).
+  - **`GET /api/v1/integrations/:provider/connection-test`** — uses **saved** decrypted API secret to ping Stripe (`GET /v1/balance`), Airwallex (`POST …/authentication/login`), Wise (`GET /v1/me` on live or sandbox host).
+  - **Webhook secrets** are not sent to third-party APIs; responses include a short **format / sanity** note only.
+
+UI: **`/agency/login`** then **`/agency/settings/integrations`**. Set **`VITE_API_URL`** if the API is not same-origin (defaults to relative `/api` via Vite proxy).
+
+Legacy: **`POST /api/v1/credentials/:provider`** with `{ "secret" }` still upserts **`api_secret`** only.
+
+## Database upgrades
+
+If you created the DB from an older schema, run **`database/migrations/002_credentials_wise_webhook.sql`** after pulling.
 
 ## Local setup
 
-1. Create a Postgres database and run `database/schema.sql` (adds `organizations.kind`, `trial_ends_at`, `subscription_ends_at`).
+1. Create a Postgres database and run `database/schema.sql` (and migration above if upgrading).
 2. Copy `apps/api/.env.example` to `apps/api/.env` and fill values (`SECUREPAY_MASTER_KEY_BASE64`, `JWT_SECRET`, `DATABASE_URL`).
 3. `npm install` at repo root, then `npm run dev:api` / `npm run dev:web`.

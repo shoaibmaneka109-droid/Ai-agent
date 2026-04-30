@@ -2,6 +2,8 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import { AgencyLayout } from "../modules/agency/layout/AgencyLayout";
 import { SoloDashboard } from "../modules/solo/pages/SoloDashboard";
 import { AgencyHome } from "../modules/agency/pages/AgencyHome";
+import { IntegrationSettingsPage } from "../modules/agency/pages/IntegrationSettingsPage";
+import { AgencyLoginPage } from "../modules/agency/pages/AgencyLoginPage";
 
 export function App() {
   return (
@@ -10,7 +12,9 @@ export function App() {
       <Route path="/solo" element={<SoloDashboard />} />
       <Route path="/agency" element={<AgencyLayout />}>
         <Route index element={<AgencyHome />} />
+        <Route path="settings/integrations" element={<IntegrationSettingsPage />} />
       </Route>
+      <Route path="/agency/login" element={<AgencyLoginPage />} />
     </Routes>
   );
 }

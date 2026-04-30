@@ -4,11 +4,13 @@ import { organizationMemberRoutes } from "./modules/organizations/members.routes
 import { credentialsRoutes } from "./modules/billing/credentials.routes.js";
 import { authRoutes } from "./modules/auth/auth.routes.js";
 import { autofillRoutes } from "./modules/autofill/autofill.routes.js";
+import { integrationRoutes } from "./modules/integrations/integration.routes.js";
 
 export function createApp() {
   const app = express();
   app.use(express.json());
   app.use("/api/v1/auth", authRoutes);
+  app.use("/api/v1", integrationRoutes);
   app.use("/api/v1", organizationRoutes);
   app.use("/api/v1/organizations/:orgId/members", organizationMemberRoutes);
   app.use("/api/v1/credentials", credentialsRoutes);

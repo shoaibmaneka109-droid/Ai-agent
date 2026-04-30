@@ -1,6 +1,8 @@
 export type UserType = "solo" | "agency";
 
-export type CredentialProvider = "stripe" | "airwallex";
+export type CredentialProvider = "stripe" | "airwallex" | "wise";
+
+export type CredentialKind = "api_secret" | "webhook_secret";
 
 export type OrgMemberRole = "owner" | "admin" | "member";
 
@@ -19,3 +21,4 @@ export interface Organization {
 }
 
 export * from "./billing.js";
+export * from "./connectionTest.js";
